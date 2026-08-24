@@ -1,0 +1,22 @@
+# Compilados y empaquetados
+target/
+*.war
+*.ear
+*.jar
+*.class
+
+# Entornos y Servidores locales (Nunca subir a Git)
+wildfly*/
+java*/
+*.zip
+*.log
+
+# Archivos de configuración de IDEs
+.settings/
+.project
+.classpath
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
