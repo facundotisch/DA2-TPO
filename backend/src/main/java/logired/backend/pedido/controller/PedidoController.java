@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.RestController;
 
 import logired.backend.pedido.entity.Pedido;
@@ -60,8 +61,9 @@ public class PedidoController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    // DELETE /api/pedido/{id}
+    // DELETE /api/pedido/{id} - OPERACIÓN SENSIBLE RESTRINGIDA A ADMIN (Seguridad Declarativa)
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
 
         if (!pedidoService.eliminar(id)) {
