@@ -20,6 +20,12 @@ public class DataInitializer {
                         passwordEncoder.encode("admin123"),
                         "ADMIN"));
             }
+            if (!usuarioRepository.existsByUsername("operador")) {
+                usuarioRepository.save(new Usuario(
+                        "operador",
+                        passwordEncoder.encode("operador123"),
+                        "OPERADOR"));
+            }
         };
     }
 }
