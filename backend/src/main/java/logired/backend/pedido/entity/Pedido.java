@@ -1,10 +1,14 @@
 package logired.backend.pedido.entity;
 
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import logired.backend.deposito.entity.Deposito;
 
 @Entity
 @Table(name = "pedidos")
@@ -19,6 +23,10 @@ public class Pedido {
     private String estado;
 
     private Double total;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "deposito_id")
+    private Deposito deposito;
 
     public Pedido() {
     }
@@ -55,5 +63,13 @@ public class Pedido {
 
     public void setTotal(Double total) {
         this.total = total;
+    }
+
+    public Deposito getDeposito() {
+        return deposito;
+    }
+
+    public void setDeposito(Deposito deposito) {
+        this.deposito = deposito;
     }
 }
