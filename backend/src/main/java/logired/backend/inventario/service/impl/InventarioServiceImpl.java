@@ -143,6 +143,11 @@ public class InventarioServiceImpl implements InventarioService {
     @Override
     @Transactional
     public ReservaStockResponse liberarStock(String sku, String deposito, int cantidad) {
+        if (cantidad <= 0) {
+            return new ReservaStockResponse(false, sku, deposito, 0, 0, 0,
+                    "La cantidad a liberar debe ser mayor que cero.", idSesionConversacional, reservasActivasEnSesion);
+        }
+
         String claveReserva = sku + "@" + deposito;
         int cantidadActual = reservasActivasEnSesion.getOrDefault(claveReserva, 0);
 

@@ -3,9 +3,10 @@ package logired.backend.inventario.controller;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,7 +23,6 @@ import logired.backend.inventario.service.InventarioService;
  */
 @RestController
 @RequestMapping("/api/inventario")
-@CrossOrigin(originPatterns = "*", allowCredentials = "true")
 public class InventarioController {
 
     private final InventarioService inventarioService;
@@ -37,8 +37,9 @@ public class InventarioController {
     }
 
     @PostMapping("/reservar")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
     public ResponseEntity<ReservaStockResponse> reservar(@RequestBody ReservaStockRequest request) {
-        int cant = (request.getCantidad() != null) ? request.getCantidad() : 1;
+        int cant = Objects.requireNonNullElse(request.getCantidad(), 1);
         ReservaStockResponse response = inventarioService.reservarStock(request.getSku(), request.getDeposito(), cant);
         if (!response.isExitoso()) {
             return ResponseEntity.badRequest().body(response);
@@ -47,8 +48,9 @@ public class InventarioController {
     }
 
     @PostMapping("/liberar")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
     public ResponseEntity<ReservaStockResponse> liberar(@RequestBody ReservaStockRequest request) {
-        int cant = (request.getCantidad() != null) ? request.getCantidad() : 1;
+        int cant = Objects.requireNonNullElse(request.getCantidad(), 1);
         ReservaStockResponse response = inventarioService.liberarStock(request.getSku(), request.getDeposito(), cant);
         if (!response.isExitoso()) {
             return ResponseEntity.badRequest().body(response);
