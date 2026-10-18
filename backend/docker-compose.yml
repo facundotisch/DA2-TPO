@@ -1,0 +1,10 @@
+services:
+  activemq:
+    image: apache/activemq-classic:6.1.3
+    container_name: logired-activemq
+    ports:
+      - "61616:61616" # Puerto TCP OpenWire para Spring Boot
+      - "8161:8161"   # Consola Web de Administración (user: admin / pass: admin)
+    environment:
+      - ACTIVEMQ_ADMIN_LOGIN=admin
+      - ACTIVEMQ_ADMIN_PASSWORD=admin
