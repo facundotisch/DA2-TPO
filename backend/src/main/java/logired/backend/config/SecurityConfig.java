@@ -28,7 +28,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-                    .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
+                    .requestMatchers("/api/auth/login", "/api/auth/register", "/api/mensajeria/**").permitAll()
                     .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/pedido", "/api/pedido/**")
                     .hasAnyRole("OPERADOR", "ADMIN")
                     .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/pedido/**")
