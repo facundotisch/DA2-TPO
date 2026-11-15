@@ -14,6 +14,7 @@ import org.springframework.http.MediaType;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import logired.backend.producto.repository.ProductoRepository;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -31,6 +32,9 @@ class PedidoSecurityTests {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private ProductoRepository productoRepository;
+
     @MockitoBean
     private PedidoService pedidoService;
 
@@ -44,6 +48,41 @@ class PedidoSecurityTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"descripcion\":\"Entrega local\",\"total\":1200}"))
                 .andExpect(status().isOk());
+    }
+
+            @Test
+            void operadorPuedeCrearPedidoConProductosYCantidades() throws Exception {
+            Pedido pedido = new Pedido("Pedido de Cliente Demo", "CREADO", 119980.0);
+            pedido.setClienteNombre("Cliente Demo");
+            pedido.setDireccionEntrega("Av. Corrientes 123");
+            pedido.agregarItem(new logired.backend.pedido.entity.PedidoItem(
+                productoRepository.findBySku("IND-001").orElseThrow(),
+                pedido.getDeposito(), 2, new java.math.BigDecimal("59990.00")));
+            when(pedidoService.crearDesdeCatalogo(any())).thenReturn(pedido);
+
+            mockMvc.perform(post("/api/pedido")
+                    .with(user("operador").roles("OPERADOR"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {"clienteNombre":"Cliente Demo","direccionEntrega":"Av. Corrientes 123",
+                         "items":[{"productoId":1,"cantidad":2}]}
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].cantidad").value(2))
+                .andExpect(jsonPath("$.items[0].precioUnitario").value(59990.0))
+                .andExpect(jsonPath("$.clienteNombre").value("Cliente Demo"));
+            }
+
+    @Test
+    void productoTieneDetalleDeVendedorYStockPorDeposito() throws Exception {
+        Long productoId = productoRepository.findBySku("IND-001").orElseThrow().getId();
+
+        mockMvc.perform(get("/api/productos/" + productoId).with(user("operador").roles("OPERADOR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sku").value("IND-001"))
+                .andExpect(jsonPath("$.precio").exists())
+                .andExpect(jsonPath("$.vendedor.nombre").value("Tienda Urbana"))
+                .andExpect(jsonPath("$.stockPorDeposito[0].deposito").exists());
     }
 
     @Test

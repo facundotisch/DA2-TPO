@@ -1,6 +1,7 @@
 package logired.backend.pedido.controller;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -14,6 +15,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.RestController;
 
 import logired.backend.pedido.entity.Pedido;
+import logired.backend.pedido.dto.PedidoCreacionRequest;
 import logired.backend.pedido.service.PedidoService;
 
 @RestController
@@ -43,11 +45,20 @@ public class PedidoController {
 
     // POST /api/pedido
     @PostMapping
-    public ResponseEntity<Pedido> crear(@RequestBody Pedido pedido) {
+    public ResponseEntity<?> crear(@RequestBody PedidoCreacionRequest request) {
+        if (!request.tieneItemsDeCatalogo()) {
+            if (request.getDescripcion() == null || request.getDescripcion().isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "El pedido debe incluir productos del catálogo."));
+            }
+            Pedido legacy = new Pedido(request.getDescripcion(), request.getEstado(), request.getTotal());
+            return ResponseEntity.ok(pedidoService.crear(legacy));
+        }
 
-        Pedido nuevoPedido = pedidoService.crear(pedido);
-
-        return ResponseEntity.ok(nuevoPedido);
+        try {
+            return ResponseEntity.ok(pedidoService.crearDesdeCatalogo(request));
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
     }
 
     // PUT /api/pedido/{id}

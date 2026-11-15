@@ -9,4 +9,6 @@ import logired.backend.deposito.entity.Deposito;
 public interface DepositoRepository extends JpaRepository<Deposito, Long> {
 
     Optional<Deposito> findFirstByOrderByIdAsc();
+
+    Optional<Deposito> findByNombre(String nombre);
 }

@@ -1,10 +1,14 @@
 package logired.backend.inventario.entity;
 
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import logired.backend.producto.entity.Producto;
 
 /**
  * Entidad JPA para la persistencia del inventario multidepósito en PostgreSQL.
@@ -26,6 +30,10 @@ public class ItemInventario {
     private Integer stockDisponible;
 
     private Integer stockBloqueado;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "producto_id")
+    private Producto producto;
 
     public ItemInventario() {
     }
@@ -80,5 +88,13 @@ public class ItemInventario {
 
     public void setStockBloqueado(Integer stockBloqueado) {
         this.stockBloqueado = stockBloqueado;
+    }
+
+    public Producto getProducto() {
+        return producto;
+    }
+
+    public void setProducto(Producto producto) {
+        this.producto = producto;
     }
 }

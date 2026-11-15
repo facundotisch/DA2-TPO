@@ -7,7 +7,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import java.util.ArrayList;
+import java.util.List;
 import logired.backend.deposito.entity.Deposito;
 
 @Entity
@@ -24,9 +27,16 @@ public class Pedido {
 
     private Double total;
 
+    private String clienteNombre;
+
+    private String direccionEntrega;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "deposito_id")
     private Deposito deposito;
+
+    @OneToMany(mappedBy = "pedido", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    private final List<PedidoItem> items = new ArrayList<>();
 
     public Pedido() {
     }
@@ -71,5 +81,30 @@ public class Pedido {
 
     public void setDeposito(Deposito deposito) {
         this.deposito = deposito;
+    }
+
+    public String getClienteNombre() {
+        return clienteNombre;
+    }
+
+    public void setClienteNombre(String clienteNombre) {
+        this.clienteNombre = clienteNombre;
+    }
+
+    public String getDireccionEntrega() {
+        return direccionEntrega;
+    }
+
+    public void setDireccionEntrega(String direccionEntrega) {
+        this.direccionEntrega = direccionEntrega;
+    }
+
+    public List<PedidoItem> getItems() {
+        return items;
+    }
+
+    public void agregarItem(PedidoItem item) {
+        item.setPedido(this);
+        items.add(item);
     }
 }

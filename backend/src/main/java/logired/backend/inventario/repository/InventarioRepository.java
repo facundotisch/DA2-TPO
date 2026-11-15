@@ -17,5 +17,7 @@ public interface InventarioRepository extends JpaRepository<ItemInventario, Long
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<ItemInventario> findBySkuAndDeposito(String sku, String deposito);
 
+    List<ItemInventario> findBySku(String sku);
+
     List<ItemInventario> findByDeposito(String deposito);
 }

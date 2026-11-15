@@ -17,6 +17,40 @@
 - Los servicios de negocio usan repositorios DAO/JPA y delegan en controladores REST; Ruteo aplica Strategy y los servicios funcionan como Facade para sus controladores.
 - Ruteo actualmente devuelve estimaciones por cantidad de paradas; no geocodifica direcciones, no calcula calles reales ni consulta trafico. Los nombres de estrategia no implican optimizacion geoespacial real todavia.
 
+## Catalogo, vendedores y pedidos
+
+El catalogo se modela en tablas separadas: un `Vendedor` publica muchos `Producto`; cada producto se identifica por SKU y puede tener stock en varios depositos; un `Pedido` contiene `PedidoItem` con producto, cantidad, deposito de despacho y precio unitario congelado. El total se calcula en el backend. El stock reservado se descuenta de disponible y se agrega a bloqueado; borrar el pedido libera esas cantidades.
+
+Al iniciar, `CatalogoDataInitializer` enlaza los registros de inventario existentes con productos y vendedores de demostracion. Es idempotente: conserva las cantidades existentes y no duplica productos ni vendedores. Precios iniciales de demo: `IND-001` ARS 59.990, `IND-002` ARS 89.990, `ELEC-010` ARS 42.990; el resto de los productos demo ARS 15.990.
+
+### API de catalogo
+
+- `GET /api/productos`: listado de productos con precio ARS, vendedor y stock agregado/por deposito.
+- `GET /api/productos/{id}`: detalle navegable del producto.
+- `GET /api/vendedores` y `GET /api/vendedores/{id}`: vendedores del catalogo.
+- `GET /api/inventario`: stock por SKU y deposito, incluyendo `producto` cuando ya fue enlazado.
+
+El front puede usar `producto.id` como ruta (`/productos/{id}`) y consultar `GET /api/productos/{id}` para la pantalla de detalle.
+
+### Crear pedido desde productos
+
+`POST /api/pedido` mantiene el boton/flujo actual y acepta el nuevo formato. Solo se envia el ID y la cantidad; el cliente no define precios ni total.
+
+```json
+{
+	"clienteNombre": "Cliente Demo",
+	"direccionEntrega": "Av. Corrientes 1234, CABA",
+	"items": [
+		{ "productoId": 1, "cantidad": 2 },
+		{ "productoId": 3, "cantidad": 1 }
+	]
+}
+```
+
+El servidor valida productos/cantidades, elige stock disponible y guarda el precio de cada producto al momento de comprar. Si se envia `depositoId`, las lineas deben poder salir de ese deposito; si se omite, cada linea puede asignarse al deposito con stock suficiente. La respuesta incluye `items[].producto`, `items[].cantidad`, `items[].precioUnitario`, `items[].subtotal` e `items[].deposito`, ademas del total. Productos sin stock o IDs invalidos devuelven HTTP 400; las consultas y el alta siguen sujetas a autenticacion/roles existentes.
+
+El scheduler de demostracion usa el mismo checkout del catalogo, por lo que los pedidos automaticos tambien tienen lineas, cantidades, precios y holds reales. Las solicitudes antiguas basadas en `descripcion` siguen aceptandose temporalmente para no romper clientes existentes.
+
 ## Componentes candidatos e interfaces
 
 Estos contratos se basan en el dominio LogiRed. Pedidos, Inventario y Ruteo estan implementados; los demas siguen siendo candidatos.
