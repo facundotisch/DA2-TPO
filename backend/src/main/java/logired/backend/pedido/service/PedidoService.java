@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.jms.TextMessage;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -32,6 +33,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class PedidoService {
@@ -75,14 +77,49 @@ public class PedidoService {
 
     @Transactional
     public Pedido crear(Pedido pedido) {
-        pedido.setEstado("CREADO");
-        if (pedido.getDeposito() == null && depositoRepository != null) {
-            depositoRepository.findFirstByOrderByIdAsc().ifPresent(pedido::setDeposito);
+        PedidoCreacionRequest request = new PedidoCreacionRequest();
+        request.setClienteNombre(pedido.getClienteNombre());
+        request.setDireccionEntrega(pedido.getDireccionEntrega());
+        request.setDescripcion(pedido.getDescripcion());
+        if (pedido.getDeposito() != null) {
+            request.setDepositoId(pedido.getDeposito().getId());
+        }
+        if (pedido.getDescripcion() != null) {
+            Matcher matcher = SKU_PATTERN.matcher(pedido.getDescripcion());
+            if (matcher.find()) {
+                Producto producto = productoRepository.findBySku(matcher.group(1))
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "El SKU indicado no existe en el catálogo."));
+                ItemPedidoRequest linea = new ItemPedidoRequest();
+                linea.setProductoId(producto.getId());
+                linea.setCantidad(1);
+                request.setItems(List.of(linea));
+            }
+        }
+        return crearDesdeCatalogo(request);
+    }
+
+    @Transactional
+    public Pedido crearDesdeCatalogo(PedidoCreacionRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("La solicitud del pedido es obligatoria.");
         }
 
-        if (pedido.getDescripcion() != null && pedido.getDescripcion().contains("SKU:")) {
-            reservarStockDesdeDescripcion(pedido);
+        Deposito depositoSolicitado = obtenerDepositoSolicitado(request.getDepositoId());
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            request.setItems(seleccionarItemsAleatorios(depositoSolicitado));
         }
+
+        List<ItemReservado> reservas = seleccionarReservas(request, depositoSolicitado);
+        Pedido pedido = new Pedido();
+        pedido.setEstado("CREADO");
+        pedido.setClienteNombre(request.getClienteNombre());
+        pedido.setDireccionEntrega(request.getDireccionEntrega());
+        pedido.setDeposito(reservas.get(0).deposito());
+        pedido.setDescripcion(valorTexto(request.getDescripcion(),
+                "Pedido de " + valorTexto(request.getClienteNombre(), "Cliente")
+                        + " | Entrega: " + valorTexto(request.getDireccionEntrega(), "Dirección pendiente")));
+        pedido.setTotal(reservarItemsEnPedido(pedido, reservas).doubleValue());
 
         Pedido pedidoGuardado = pedidoRepository.save(pedido);
         publicarEventoPedidoCreado(pedidoGuardado);
@@ -90,11 +127,49 @@ public class PedidoService {
     }
 
     @Transactional
-    public Pedido crearDesdeCatalogo(PedidoCreacionRequest request) {
-        if (request.getItems() == null || request.getItems().isEmpty()) {
-            throw new IllegalArgumentException("El pedido debe incluir al menos un producto.");
+    public int completarPedidosSinItems() {
+        List<Pedido> pedidosPendientes = pedidoRepository.buscarPedidosSinItems();
+        int completados = 0;
+
+        for (Pedido pedido : pedidosPendientes) {
+            PedidoCreacionRequest request = new PedidoCreacionRequest();
+            request.setClienteNombre(pedido.getClienteNombre());
+            request.setDireccionEntrega(pedido.getDireccionEntrega());
+            request.setDescripcion(pedido.getDescripcion());
+            if (pedido.getDeposito() != null) {
+                request.setDepositoId(pedido.getDeposito().getId());
+            }
+
+            Deposito depositoSolicitado = obtenerDepositoSolicitado(request.getDepositoId());
+            try {
+                request.setItems(seleccionarItemsAleatorios(depositoSolicitado));
+            } catch (IllegalStateException noHayStockEnDeposito) {
+                request.setDepositoId(null);
+                depositoSolicitado = null;
+                request.setItems(seleccionarItemsAleatorios(null));
+            }
+            List<ItemReservado> reservas = seleccionarReservas(request, depositoSolicitado);
+            if (pedido.getDescripcion() == null || pedido.getDescripcion().isBlank()) {
+                pedido.setDescripcion("Pedido completado automáticamente con productos del inventario.");
+            }
+            pedido.setDeposito(reservas.get(0).deposito());
+            pedido.setTotal(reservarItemsEnPedido(pedido, reservas).doubleValue());
+            pedidoRepository.save(pedido);
+            completados++;
         }
 
+        return completados;
+    }
+
+    private Deposito obtenerDepositoSolicitado(Long depositoId) {
+        if (depositoId == null) {
+            return null;
+        }
+        return depositoRepository.findById(depositoId)
+                .orElseThrow(() -> new IllegalArgumentException("El depósito solicitado no existe."));
+    }
+
+    private List<ItemReservado> seleccionarReservas(PedidoCreacionRequest request, Deposito depositoSolicitado) {
         Map<Long, Integer> cantidadesPorProducto = new LinkedHashMap<>();
         for (ItemPedidoRequest item : request.getItems()) {
             if (item.getProductoId() == null || item.getCantidad() == null || item.getCantidad() <= 0) {
@@ -107,12 +182,6 @@ public class PedidoService {
                 .collect(Collectors.toMap(Producto::getId, producto -> producto));
         if (productos.size() != cantidadesPorProducto.size()) {
             throw new IllegalArgumentException("Uno o más productos no existen en el catálogo.");
-        }
-
-        Deposito depositoSolicitado = null;
-        if (request.getDepositoId() != null) {
-            depositoSolicitado = depositoRepository.findById(request.getDepositoId())
-                    .orElseThrow(() -> new IllegalArgumentException("El depósito solicitado no existe."));
         }
 
         List<ItemReservado> reservaSeleccionada = new ArrayList<>();
@@ -147,14 +216,12 @@ public class PedidoService {
             reservaSeleccionada.add(seleccionado);
         }
 
-        Pedido pedido = new Pedido();
-        pedido.setEstado("CREADO");
-        pedido.setClienteNombre(request.getClienteNombre());
-        pedido.setDireccionEntrega(request.getDireccionEntrega());
-        pedido.setDeposito(reservaSeleccionada.get(0).deposito());
-        BigDecimal total = BigDecimal.ZERO;
+        return reservaSeleccionada;
+    }
 
-        for (ItemReservado reserva : reservaSeleccionada) {
+    private BigDecimal reservarItemsEnPedido(Pedido pedido, List<ItemReservado> reservas) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (ItemReservado reserva : reservas) {
             ItemInventario stock = reserva.inventario();
             stock.setStockDisponible(stock.getStockDisponible() - reserva.cantidad());
             stock.setStockBloqueado(valorStock(stock.getStockBloqueado()) + reserva.cantidad());
@@ -164,14 +231,35 @@ public class PedidoService {
             pedido.agregarItem(pedidoItem);
             total = total.add(pedidoItem.getSubtotal());
         }
+        return total;
+    }
 
-        pedido.setDescripcion("Pedido de " + valorTexto(request.getClienteNombre(), "Cliente")
-                + " | Entrega: " + valorTexto(request.getDireccionEntrega(), "Dirección pendiente"));
-        pedido.setTotal(total.doubleValue());
+    private List<ItemPedidoRequest> seleccionarItemsAleatorios(Deposito depositoSolicitado) {
+        Map<Long, Producto> productosConStock = new LinkedHashMap<>();
+        inventarioRepository.findAll().stream()
+                .filter(item -> item.getProducto() != null
+                        && item.getProducto().getId() != null
+                        && valorStock(item.getStockDisponible()) > 0
+                        && item.getDeposito() != null
+                        && (depositoSolicitado == null
+                                || depositoSolicitado.getNombre().equals(item.getDeposito())))
+                .forEach(item -> productosConStock.putIfAbsent(item.getProducto().getId(), item.getProducto()));
 
-        Pedido pedidoGuardado = pedidoRepository.save(pedido);
-        publicarEventoPedidoCreado(pedidoGuardado);
-        return pedidoGuardado;
+        List<Producto> candidatos = new ArrayList<>(productosConStock.values());
+        if (candidatos.isEmpty()) {
+            throw new IllegalStateException("No hay productos del inventario con stock disponible para el pedido.");
+        }
+
+        Collections.shuffle(candidatos);
+        int cantidadProductos = ThreadLocalRandom.current().nextInt(1, Math.min(2, candidatos.size()) + 1);
+        return candidatos.subList(0, cantidadProductos).stream()
+                .map(producto -> {
+                    ItemPedidoRequest linea = new ItemPedidoRequest();
+                    linea.setProductoId(producto.getId());
+                    linea.setCantidad(1);
+                    return linea;
+                })
+                .toList();
     }
 
     private record ItemReservado(Producto producto, ItemInventario inventario, Deposito deposito, int cantidad) {
@@ -183,35 +271,6 @@ public class PedidoService {
 
     private String valorTexto(String valor, String predeterminado) {
         return valor == null || valor.isBlank() ? predeterminado : valor.trim();
-    }
-
-    private void reservarStockDesdeDescripcion(Pedido pedido) {
-        if (inventarioRepository == null) {
-            return;
-        }
-
-        Matcher matcher = SKU_PATTERN.matcher(pedido.getDescripcion());
-        if (!matcher.find()) {
-            return;
-        }
-
-        String sku = matcher.group(1);
-        String depositoNombre = pedido.getDeposito() != null ? pedido.getDeposito().getNombre() : "Depósito Central Barracas";
-
-        ItemInventario item = resolverItemInventarioPorSku(sku, depositoNombre).orElse(null);
-
-        if (item == null) {
-            throw new IllegalStateException("No existe stock para el SKU " + sku + " en el depósito configurado.");
-        }
-
-        if (item.getStockDisponible() == null || item.getStockDisponible() <= 0) {
-            throw new IllegalStateException("Stock insuficiente para el SKU " + sku + ".");
-        }
-
-        item.setStockDisponible(item.getStockDisponible() - 1);
-        item.setStockBloqueado(item.getStockBloqueado() == null ? 1 : item.getStockBloqueado() + 1);
-        inventarioRepository.save(item);
-        log.info("[AUTO-HOLD] SKU {} reservado en depósito {} para pedido nuevo.", sku, depositoNombre);
     }
 
     private Optional<ItemInventario> resolverItemInventarioPorSku(String sku, String depositoNombre) {
@@ -307,7 +366,9 @@ public class PedidoService {
                         });
             }
         }
-        liberarStockDesdeDescripcion(pedido);
+        if (pedido.getItems() == null || pedido.getItems().isEmpty()) {
+            liberarStockDesdeDescripcion(pedido);
+        }
         pedidoRepository.deleteById(id);
         return true;
     }

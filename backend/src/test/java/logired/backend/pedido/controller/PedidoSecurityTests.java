@@ -15,6 +15,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import logired.backend.producto.repository.ProductoRepository;
+import logired.backend.pedido.dto.PedidoCreacionRequest;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -51,6 +52,26 @@ class PedidoSecurityTests {
     }
 
             @Test
+            void pedidoSinItemsSolicitadosRecibeUnProductoDeCatalogo() throws Exception {
+            var producto = productoRepository.findBySku("IND-001").orElseThrow();
+            Pedido pedido = new Pedido("Pedido aleatorio", "CREADO", 59990.0);
+            pedido.setClienteNombre("Cliente Demo");
+            pedido.setDireccionEntrega("Av. Corrientes 123");
+            pedido.agregarItem(new logired.backend.pedido.entity.PedidoItem(
+                producto, null, 1, producto.getPrecio()));
+            when(pedidoService.crearDesdeCatalogo(any(PedidoCreacionRequest.class))).thenReturn(pedido);
+
+            mockMvc.perform(post("/api/pedido")
+                    .with(user("operador").roles("OPERADOR"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"clienteNombre\":\"Cliente Demo\",\"direccionEntrega\":\"Av. Corrientes 123\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].producto.sku").value("IND-001"))
+                .andExpect(jsonPath("$.items[0].cantidad").value(1));
+            }
+
+            @Test
             void operadorPuedeCrearPedidoConProductosYCantidades() throws Exception {
             Pedido pedido = new Pedido("Pedido de Cliente Demo", "CREADO", 119980.0);
             pedido.setClienteNombre("Cliente Demo");
@@ -82,7 +103,13 @@ class PedidoSecurityTests {
                 .andExpect(jsonPath("$.sku").value("IND-001"))
                 .andExpect(jsonPath("$.precio").exists())
                 .andExpect(jsonPath("$.vendedor.nombre").value("Tienda Urbana"))
-                .andExpect(jsonPath("$.stockPorDeposito[0].deposito").exists());
+                .andExpect(jsonPath("$.stockPorDeposito[0].deposito").exists())
+                .andExpect(jsonPath("$.ubicacion.nombre").value("Deposito central (demo)"))
+                .andExpect(jsonPath("$.ubicacion.direccion").value("Av. 9 de Julio s/n, junto al Obelisco, CABA"))
+                .andExpect(jsonPath("$.ubicacion.latitud").value(-34.6037))
+                .andExpect(jsonPath("$.ubicacion.longitud").value(-58.3816))
+                .andExpect(jsonPath("$.ubicacion.openStreetMapUrl").value(
+                    org.hamcrest.Matchers.containsString("openstreetmap.org")));
     }
 
     @Test

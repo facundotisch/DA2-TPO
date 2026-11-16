@@ -14,5 +14,6 @@ public record ProductoResponse(
         VendedorResponse vendedor,
         int stockDisponible,
         int stockBloqueado,
-        List<StockDepositoResponse> stockPorDeposito) {
+        List<StockDepositoResponse> stockPorDeposito,
+        UbicacionResponse ubicacion) {
 }

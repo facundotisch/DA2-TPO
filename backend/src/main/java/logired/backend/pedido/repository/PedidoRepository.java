@@ -11,4 +11,7 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
 	@Query("select pedido from Pedido pedido where pedido.deposito is null")
 	List<Pedido> buscarPedidosSinDeposito();
+
+	@Query("select pedido from Pedido pedido where pedido.items is empty")
+	List<Pedido> buscarPedidosSinItems();
 }

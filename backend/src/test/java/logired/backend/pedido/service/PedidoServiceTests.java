@@ -51,16 +51,32 @@ class PedidoServiceTests {
     private PedidoService pedidoService;
 
     @Test
-    void crearEstableceEstadoYAsignaDepositoPredeterminado() {
-        Pedido pedido = new Pedido("Paquete", null, 1200.0);
+    void crearSinLineasAgregaUnProductoYReservaStockDelInventario() {
+        Vendedor vendedor = new Vendedor("Tienda", "ventas@tienda.demo", "Catálogo");
+        Producto producto = new Producto("SKU-001", "Producto", "Producto demo", "General",
+                new BigDecimal("1200.00"), vendedor);
+        org.springframework.test.util.ReflectionTestUtils.setField(producto, "id", 1L);
         Deposito deposito = new Deposito("Central", "Av. 9 de Julio, CABA", -34.6037, -58.3816);
-        when(depositoRepository.findFirstByOrderByIdAsc()).thenReturn(Optional.of(deposito));
+        ItemInventario stock = new ItemInventario("SKU-001", "Producto", "Central", 5, 0);
+        stock.setProducto(producto);
+        Pedido pedido = new Pedido("Pedido de prueba", null, null);
+        when(inventarioRepository.findAll()).thenReturn(List.of(stock));
+        when(productoRepository.findAllById(Set.of(1L))).thenReturn(List.of(producto));
+        when(inventarioRepository.findBySku("SKU-001")).thenReturn(List.of(stock));
+        when(inventarioRepository.findBySkuAndDeposito("SKU-001", "Central")).thenReturn(Optional.of(stock));
+        when(depositoRepository.findByNombre("Central")).thenReturn(Optional.of(deposito));
         when(pedidoRepository.save(any(Pedido.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Pedido creado = pedidoService.crear(pedido);
 
         assertEquals("CREADO", creado.getEstado());
-        assertSame(deposito, creado.getDeposito());
+        assertEquals(1, creado.getItems().size());
+        assertEquals(1, creado.getItems().get(0).getCantidad());
+        assertEquals("SKU-001", creado.getItems().get(0).getProducto().getSku());
+        assertEquals(4, stock.getStockDisponible());
+        assertEquals(1, stock.getStockBloqueado());
+        assertEquals(1200.0, creado.getTotal());
+        assertSame(deposito, creado.getItems().get(0).getDeposito());
     }
 
     @Test
@@ -98,18 +114,58 @@ class PedidoServiceTests {
     void crearReservaStockAunqueElSkuNoCoincidaConElNombreDelDeposito() {
         Deposito deposito = new Deposito("Deposito central (demo)", "Av. 9 de Julio s/n, junto al Obelisco, CABA", -34.6037, -58.3816);
         ItemInventario item = new ItemInventario("SESSION-abc", "Item de sesión", "Deposito por sesion", 10, 0);
+        Vendedor vendedor = new Vendedor("Tienda", "ventas@tienda.demo", "Catálogo");
+        Producto producto = new Producto("SESSION-abc", "Item de sesión", "Producto demo", "General",
+            new BigDecimal("1200.00"), vendedor);
+        org.springframework.test.util.ReflectionTestUtils.setField(producto, "id", 2L);
+        item.setProducto(producto);
         Pedido pedido = new Pedido("Pedido automático | Usuario: Usuario 3 | SKU:SESSION-abc | Producto: Item de sesión | Dirección: Calle Falsa 123", "CREADO", 1200.0);
         pedido.setDeposito(deposito);
 
-        when(inventarioRepository.findBySkuAndDeposito("SESSION-abc", "Deposito central (demo)")).thenReturn(Optional.empty());
-        when(inventarioRepository.findAll()).thenReturn(java.util.List.of(item));
+        when(productoRepository.findBySku("SESSION-abc")).thenReturn(Optional.of(producto));
+        when(productoRepository.findAllById(Set.of(2L))).thenReturn(List.of(producto));
+        when(inventarioRepository.findBySku("SESSION-abc")).thenReturn(List.of(item));
+        when(inventarioRepository.findBySkuAndDeposito("SESSION-abc", "Deposito por sesion"))
+            .thenReturn(Optional.of(item));
+        when(depositoRepository.findByNombre("Deposito por sesion"))
+            .thenReturn(Optional.of(new Deposito("Deposito por sesion", "Direccion demo", -34.6, -58.4)));
         when(pedidoRepository.save(any(Pedido.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Pedido creado = pedidoService.crear(pedido);
 
         assertEquals("CREADO", creado.getEstado());
+        assertEquals(1, creado.getItems().size());
         assertEquals(9, item.getStockDisponible());
         assertEquals(1, item.getStockBloqueado());
+    }
+
+    @Test
+    void completarPedidosHistoricosSinItemsAgregaProductoYReservaStock() {
+        Vendedor vendedor = new Vendedor("Tienda", "ventas@tienda.demo", "Catálogo");
+        Producto producto = new Producto("HIST-001", "Producto histórico", "Producto demo", "General",
+                new BigDecimal("250.00"), vendedor);
+        ReflectionTestUtils.setField(producto, "id", 5L);
+        Deposito deposito = new Deposito("Central", "Av. 9 de Julio", -34.6037, -58.3816);
+        ItemInventario stock = new ItemInventario("HIST-001", "Producto histórico", "Central", 3, 0);
+        stock.setProducto(producto);
+        Pedido pedidoExistente = new Pedido("Pedido #29", "CREADO", 1500.0);
+
+        when(pedidoRepository.buscarPedidosSinItems()).thenReturn(List.of(pedidoExistente));
+        when(inventarioRepository.findAll()).thenReturn(List.of(stock));
+        when(productoRepository.findAllById(Set.of(5L))).thenReturn(List.of(producto));
+        when(inventarioRepository.findBySku("HIST-001")).thenReturn(List.of(stock));
+        when(inventarioRepository.findBySkuAndDeposito("HIST-001", "Central")).thenReturn(Optional.of(stock));
+        when(depositoRepository.findByNombre("Central")).thenReturn(Optional.of(deposito));
+        when(pedidoRepository.save(pedidoExistente)).thenReturn(pedidoExistente);
+
+        int completados = pedidoService.completarPedidosSinItems();
+
+        assertEquals(1, completados);
+        assertEquals(1, pedidoExistente.getItems().size());
+        assertEquals("HIST-001", pedidoExistente.getItems().get(0).getProducto().getSku());
+        assertEquals(2, stock.getStockDisponible());
+        assertEquals(1, stock.getStockBloqueado());
+        assertEquals(250.0, pedidoExistente.getTotal());
     }
 
     @Test

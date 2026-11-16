@@ -46,15 +46,19 @@ public class PedidoController {
     // POST /api/pedido
     @PostMapping
     public ResponseEntity<?> crear(@RequestBody PedidoCreacionRequest request) {
-        if (!request.tieneItemsDeCatalogo()) {
-            if (request.getDescripcion() == null || request.getDescripcion().isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "El pedido debe incluir productos del catálogo."));
-            }
-            Pedido legacy = new Pedido(request.getDescripcion(), request.getEstado(), request.getTotal());
-            return ResponseEntity.ok(pedidoService.crear(legacy));
+        if (request == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "La solicitud del pedido es obligatoria."));
         }
 
         try {
+            if (!request.tieneItemsDeCatalogo()
+                    && request.getDescripcion() != null
+                    && request.getDescripcion().contains("SKU:")) {
+            Pedido legacy = new Pedido(request.getDescripcion(), request.getEstado(), request.getTotal());
+            legacy.setClienteNombre(request.getClienteNombre());
+            legacy.setDireccionEntrega(request.getDireccionEntrega());
+                return ResponseEntity.ok(pedidoService.crear(legacy));
+            }
             return ResponseEntity.ok(pedidoService.crearDesdeCatalogo(request));
         } catch (IllegalArgumentException | IllegalStateException exception) {
             return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));

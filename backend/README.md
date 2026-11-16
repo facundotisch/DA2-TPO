@@ -25,8 +25,8 @@ Al iniciar, `CatalogoDataInitializer` enlaza los registros de inventario existen
 
 ### API de catalogo
 
-- `GET /api/productos`: listado de productos con precio ARS, vendedor y stock agregado/por deposito.
-- `GET /api/productos/{id}`: detalle navegable del producto.
+- `GET /api/productos`: listado de productos con precio ARS, vendedor y stock agregado/por deposito; cada producto incluye `ubicacion` con el deposito default, direccion, coordenadas y `openStreetMapUrl` para el mapa.
+- `GET /api/productos/{id}`: detalle navegable del producto con la misma ubicacion default.
 - `GET /api/vendedores` y `GET /api/vendedores/{id}`: vendedores del catalogo.
 - `GET /api/inventario`: stock por SKU y deposito, incluyendo `producto` cuando ya fue enlazado.
 
@@ -47,7 +47,7 @@ El front puede usar `producto.id` como ruta (`/productos/{id}`) y consultar `GET
 }
 ```
 
-El servidor valida productos/cantidades, elige stock disponible y guarda el precio de cada producto al momento de comprar. Si se envia `depositoId`, las lineas deben poder salir de ese deposito; si se omite, cada linea puede asignarse al deposito con stock suficiente. La respuesta incluye `items[].producto`, `items[].cantidad`, `items[].precioUnitario`, `items[].subtotal` e `items[].deposito`, ademas del total. Productos sin stock o IDs invalidos devuelven HTTP 400; las consultas y el alta siguen sujetas a autenticacion/roles existentes.
+El servidor valida productos/cantidades, elige stock disponible y guarda el precio de cada producto al momento de comprar. Si se envia `depositoId`, las lineas deben poder salir de ese deposito; si se omite, cada linea puede asignarse al deposito con stock suficiente. Si no se mandan lineas, el servidor agrega aleatoriamente uno o dos productos del inventario con stock y reserva sus unidades. Al iniciar, tambien completa pedidos anteriores sin lineas cuando hay stock. La respuesta incluye `items[].producto`, `items[].cantidad`, `items[].precioUnitario`, `items[].subtotal` e `items[].deposito`, ademas del total. Productos sin stock o IDs invalidos devuelven HTTP 400; las consultas y el alta siguen sujetas a autenticacion/roles existentes.
 
 El scheduler de demostracion usa el mismo checkout del catalogo, por lo que los pedidos automaticos tambien tienen lineas, cantidades, precios y holds reales. Las solicitudes antiguas basadas en `descripcion` siguen aceptandose temporalmente para no romper clientes existentes.
 

@@ -6,10 +6,13 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import logired.backend.deposito.entity.Deposito;
+import logired.backend.deposito.repository.DepositoRepository;
 import logired.backend.inventario.entity.ItemInventario;
 import logired.backend.inventario.repository.InventarioRepository;
 import logired.backend.producto.dto.ProductoResponse;
 import logired.backend.producto.dto.StockDepositoResponse;
+import logired.backend.producto.dto.UbicacionResponse;
 import logired.backend.producto.dto.VendedorResponse;
 import logired.backend.producto.entity.Producto;
 import logired.backend.producto.repository.ProductoRepository;
@@ -20,21 +23,35 @@ public class ProductoService {
 
     private final ProductoRepository productoRepository;
     private final InventarioRepository inventarioRepository;
+    private final DepositoRepository depositoRepository;
 
-    public ProductoService(ProductoRepository productoRepository, InventarioRepository inventarioRepository) {
+    public ProductoService(
+            ProductoRepository productoRepository,
+            InventarioRepository inventarioRepository,
+            DepositoRepository depositoRepository) {
         this.productoRepository = productoRepository;
         this.inventarioRepository = inventarioRepository;
+        this.depositoRepository = depositoRepository;
     }
 
     public List<ProductoResponse> obtenerTodos() {
-        return productoRepository.findAll().stream().map(this::convertir).toList();
+        Deposito ubicacionPredeterminada = obtenerDepositoPredeterminado();
+        return productoRepository.findAll().stream()
+                .map(producto -> convertir(producto, ubicacionPredeterminada))
+                .toList();
     }
 
     public Optional<ProductoResponse> obtenerPorId(Long id) {
-        return productoRepository.findById(id).map(this::convertir);
+        Deposito ubicacionPredeterminada = obtenerDepositoPredeterminado();
+        return productoRepository.findById(id).map(producto -> convertir(producto, ubicacionPredeterminada));
     }
 
-    private ProductoResponse convertir(Producto producto) {
+    private Deposito obtenerDepositoPredeterminado() {
+        return depositoRepository.findFirstByOrderByIdAsc()
+                .orElseThrow(() -> new IllegalStateException("No hay un deposito predeterminado configurado"));
+    }
+
+    private ProductoResponse convertir(Producto producto, Deposito ubicacionPredeterminada) {
         List<StockDepositoResponse> stockPorDeposito = inventarioRepository.findBySku(producto.getSku()).stream()
                 .map(item -> new StockDepositoResponse(
                         item.getDeposito(),
@@ -60,7 +77,14 @@ public class ProductoService {
                 vendedor,
                 disponible,
                 bloqueado,
-                stockPorDeposito);
+                stockPorDeposito,
+                new UbicacionResponse(
+                    ubicacionPredeterminada.getId(),
+                    ubicacionPredeterminada.getNombre(),
+                    ubicacionPredeterminada.getDireccion(),
+                    ubicacionPredeterminada.getLatitud(),
+                    ubicacionPredeterminada.getLongitud(),
+                    ubicacionPredeterminada.getOpenStreetMapUrl()));
     }
 
     private int valor(Integer stock) {

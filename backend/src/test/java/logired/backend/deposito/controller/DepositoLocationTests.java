@@ -38,15 +38,18 @@ class DepositoLocationTests {
         }
 
     @Test
-    void pedidoNuevoIncluyeElDepositoPredeterminado() throws Exception {
+        void pedidoNuevoSinItemsIncluyeProductoYDepositoConStock() throws Exception {
         mockMvc.perform(post("/api/pedido")
                         .with(user("operador").roles("OPERADOR"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"descripcion\":\"Entrega de prueba\",\"total\":1500}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deposito.direccion")
-                        .value("Av. 9 de Julio s/n, junto al Obelisco, CABA"))
-                .andExpect(jsonPath("$.deposito.latitud").value(-34.6037))
-                .andExpect(jsonPath("$.deposito.longitud").value(-58.3816));
+            .andExpect(jsonPath("$.items.length()")
+                .value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+            .andExpect(jsonPath("$.items[0].producto.sku").isNotEmpty())
+            .andExpect(jsonPath("$.items[0].cantidad").value(1))
+            .andExpect(jsonPath("$.deposito.direccion").isNotEmpty())
+            .andExpect(jsonPath("$.deposito.latitud").exists())
+            .andExpect(jsonPath("$.deposito.longitud").exists());
     }
 }
