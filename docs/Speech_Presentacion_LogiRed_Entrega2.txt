@@ -1,0 +1,226 @@
+================================================================================
+GUION DE EXPOSICIÓN ORAL (SPEECH COMPLETO)
+2.ª ENTREGA PARCIAL (16/11): EL NÚCLEO FUNCIONANDO
+PROYECTO: LOGIRED — LOGÍSTICA DE ÚLTIMA MILLA (SOA)
+UADE · DESARROLLO DE APLICACIONES II · GRUPO 13
+INTEGRANTES: Facundo Tisch · Lola Díaz · Nicolás Valenzuela
+================================================================================
+
+DURACIÓN TOTAL ESTIMADA: 5 a 6 minutos
+OBJETIVO: Demostrar solvencia técnica, valor de negocio y cumplimiento estricto
+de los requisitos de cátedra antes de dar paso a la demostración interactiva en vivo.
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 1: PORTADA
+Título: LogiRed — 2.ª Entrega Parcial: El Núcleo Funcionando en Vivo
+--------------------------------------------------------------------------------
+SPEECH:
+"Buenas noches, profesores y compañeros. Somos el Grupo 13, conformado por
+Lola Díaz, Nicolás Valenzuela y quien les habla, Facundo Tisch. Hoy venimos a
+presentar la Segunda Entrega Parcial de LogiRed, nuestra plataforma orientada a
+servicios diseñada para resolver la distribución logística metropolitana y de
+última milla.
+
+El propósito central de esta presentación es certificar que el núcleo de nuestro
+sistema se encuentra 100% operativo y desplegado de punta a punta. A lo largo de
+los próximos minutos vamos a recorrer cómo avanza el proyecto sobre las historias
+de usuario comprometidas en el diseño, la arquitectura en capas implementada,
+los patrones de diseño adoptados con sus respectivos registros ADR, la mensajería
+asincrónica real sobre broker ActiveMQ y, de forma prioritaria, el blindaje de la
+entidad central mediante el patrón State con validación HTTP 409 ante transiciones
+inválidas."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 2: 1. CÓMO AVANZA EL TPO: CONSTRUCCIÓN INCREMENTAL Y ALCANCE
+--------------------------------------------------------------------------------
+SPEECH:
+"Siguiendo los lineamientos pedagógicos de la cátedra, cada entrega de nuestra
+materia se construye de forma incremental sobre la anterior. El alcance que hoy
+venimos a defender no surge de la improvisación, sino que responde directamente
+a las historias de usuario que comprometimos en la entrega formal de diseño.
+
+En la primera etapa definimos el catálogo de componentes del dominio. En la
+Primera Entrega Obligatoria desplegamos el esquema relacional en PostgreSQL 18,
+el componente stateless de Pedidos, el inventario stateful con sesión conversacional
+y el ruteo algorítmico. Hoy, en esta segunda entrega, damos el salto cualitativo:
+no traemos capturas estáticas ni código en papel; todo lo que verán en pantalla
+está compilado, testeado y ejecutándose en vivo sobre nuestros servidores locales,
+integrando React 19, Spring Boot 4, Apache ActiveMQ y PostgreSQL."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 3: 2. EL FLUJO DE NEGOCIO PUNTA A PUNTA: CERO FRICCIÓN
+--------------------------------------------------------------------------------
+SPEECH:
+"Para entender cómo interactúan los componentes, diseñamos un flujo de punta a
+punta que resuelve un problema crítico de negocio: la inmediatez en el despacho
+sin riesgo de sobreventa. Este flujo se ejecuta en cuatro pasos sincronizados:
+
+Paso 1: El operador o comercio ingresa a nuestra SPA en React 19, explora el
+catálogo con códigos SKU reales y selecciona los productos a despachar.
+
+Paso 2: Al solicitar la compra, el backend en Spring Boot invoca a InventarioService,
+el cual ejecuta una consulta con bloqueo pesimista mediante SELECT FOR UPDATE
+en PostgreSQL. Esto garantiza que nadie más pueda comprar esas unidades en simultáneo.
+
+Paso 3: Con el stock reservado, PedidoService persiste la orden de forma atómica
+en la base de datos, congelando el precio unitario pactado y asignando el estado
+inicial CREADO.
+
+Paso 4: Inmediatamente después de la persistencia, el servicio publica un evento
+asincrónico Fire-and-Forget en ActiveMQ en menos de 50 milisegundos. La respuesta HTTP
+vuelve instantáneamente al usuario, mientras que en segundo plano el depósito y la
+logística comienzan la preparación física sin bloquear el navegador."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 4: 3. PATRONES DE DISEÑO IMPLEMENTADOS CON SUS ADRs
+--------------------------------------------------------------------------------
+SPEECH:
+"Un aspecto fundamental de nuestra arquitectura es que cada patrón de software
+adoptado está rigurosamente justificado mediante un Architecture Decision Record (ADR)
+almacenado formalmente en el repositorio, bajo la carpeta 'docs/adr/':
+
+Primero, el ADR-001 documenta el patrón State en la entidad Pedido para gobernar su
+ciclo de vida y responder con HTTP 409 ante inconsistencias operativas.
+
+Segundo, el ADR-002 describe el patrón Strategy en RuteoService, permitiendo
+intercambiar en caliente algoritmos de Distancia Más Corta para ahorro de combustible
+o Tiempo Más Rápido para entregas express.
+
+Tercero, el ADR-003 detalla el patrón Stateful Session en InventarioService, que
+concede un hold temporal de 5 minutos mediante @SessionScope con liberación automática
+al expirar la sesión mediante @PreDestroy.
+
+Y cuarto, el ADR-004 formaliza el patrón Publish-Subscribe con Apache ActiveMQ para
+el desacoplamiento temporal y espacial de eventos de dominio."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 5: 4. REQUISITO CLAVE: PATRÓN STATE Y BLINDAJE CON HTTP 409
+--------------------------------------------------------------------------------
+SPEECH:
+"Llegamos al punto neurálgico exigido por la cátedra para esta entrega: el patrón
+State en la entidad central. En logística, permitir que cualquier operador modifique
+a mano el estado de un paquete genera caos operativo y fraudes, como cobrar o dar
+por entregado un pedido que ni siquiera fue preparado.
+
+Implementamos una máquina de estados polimórfica estricta: todo pedido nace en
+CREADO; únicamente desde allí puede pasar a ASIGNADO; luego a EN RUTA; y finalmente
+concluir en sus estados terminales e inmutables: ENTREGADO o FALLIDO.
+
+Para blindar esta regla, si se intenta forzar una transición prohibida —por ejemplo,
+pasar un pedido recién CREADO directamente a ENTREGADO—, el estado activo intercepta
+la llamada y arroja una excepción de negocio llamada TransicionInvalidaException.
+Esta excepción está anotada con @ResponseStatus(HttpStatus.CONFLICT), lo que hace que
+Spring MVC responda inmediatamente con código HTTP 409 Conflict.
+Esto está probado con tests unitarios automatizados y lo tenemos listo para
+demostrarlo en vivo en nuestra API."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 6: 5. MENSAJERÍA ASINCRÓNICA REAL CON APACHE ACTIVEMQ
+--------------------------------------------------------------------------------
+SPEECH:
+"Para la integración asincrónica, configuramos una infraestructura real basada en
+el broker Apache ActiveMQ Classic corriendo en el puerto TCP 61616.
+
+Optamos por un modelo Publish-Subscribe sobre el tópico 'logired.envios.creados'.
+Cuando PedidoService confirma la orden, publica un TextMessage JSON tipado con el DTO
+PedidoCreadoEvent. Descartamos explícitamente el uso de ObjectMessage por motivos de
+seguridad defensiva, mitigando riesgos de deserialización insegura según OWASP A08.
+
+Conectados a este tópico conviven tres suscriptores concurrentes con @JmsListener:
+El Depósito Central inicia el picking físico; el área de Logística preasigna el
+chofer de última milla; y Comunicaciones despacha el aviso al comprador.
+Gracias al broker, si el servidor de notificaciones o el servicio de ruteo sufren
+una demora o caída temporal, el pedido principal no se pierde ni se cancela la venta."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 7: 6. SEGURIDAD BASE (RBAC) Y TESTS AUTOMATIZADOS
+--------------------------------------------------------------------------------
+SPEECH:
+"En el plano de seguridad, aplicamos el principio de defensa en profundidad y mínimo
+privilegio con Spring Security. Establecimos dos roles bien diferenciados:
+El rol OPERADOR, que puede crear pedidos y consultar existencias; y el rol ADMIN,
+quien es el único autorizado para operaciones sensibles mediante la anotación
+declarativa @PreAuthorize hasRole ADMIN, como la baja física de pedidos o el cambio
+crítico de estados. Las contraseñas están protegidas en PostgreSQL con hash BCrypt
+costo 10 con sal criptográfica aleatoria.
+
+Toda esta lógica está blindada por nuestra suite de pruebas automatizadas con
+JUnit 5 y MockMvc. En el backend contamos con 13 tests unitarios e integradores que
+verifican que un operador reciba HTTP 403 al querer borrar un pedido, que el admin
+reciba HTTP 204, y que las transiciones inválidas retornen efectivamente el HTTP 409.
+La suite corre bajo Maven Surefire con resultado 100% verde: BUILD SUCCESS."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 8: 7. MEJORAS DE DISEÑO POR CRITERIO PROPIO DEL EQUIPO
+--------------------------------------------------------------------------------
+SPEECH:
+"Queremos destacar una serie de mejoras de diseño arquitectónico y funcional que
+incorporamos por criterio propio y proactividad del equipo, buscando elevar la
+calidad y el realismo del producto:
+
+En primer lugar, profesionalizamos el modelo eliminando los pedidos genéricos de
+texto plano. Modelamos un catálogo desacoplado con las entidades Producto (con código
+SKU único), Vendedor y PedidoItem con precio unitario congelado al momento exacto de
+emitir la compra.
+
+En segundo lugar, sumamos geolocalización interactiva en el Frontend utilizando Leaflet
+y OpenStreetMap, permitiendo visualizar en el mapa las coordenadas geográficas reales
+del depósito central y los puntos logísticos en CABA.
+
+Y en tercer lugar, garantizamos que el cálculo del total se realice siempre de forma
+atómica en el servidor backend, impidiendo cualquier manipulación de importes desde
+el cliente web y asegurando la integridad financiera de la transacción."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 9: 8. TABLERO DE GESTIÓN JIRA AL DÍA
+--------------------------------------------------------------------------------
+SPEECH:
+"La organización del trabajo del Grupo 13 la gestionamos de manera transparente y
+ágil en nuestro tablero de Jira.
+
+Mantenemos una trazabilidad continua donde cada requerimiento, componente, ADR y
+caso de prueba cuenta con responsable único asignado y criterios de aceptación claros.
+
+El flujo del tablero refleja con fidelidad el ciclo de vida de nuestro desarrollo:
+desde el Backlog inicial y las historias por refinar en To Do, pasando por el
+trabajo en curso en Doing, las etapas de validación y pruebas de regresión en Check,
+hasta la columna Done, donde consolidamos todas las funcionalidades operativas del
+núcleo que hoy les estamos presentando.
+
+En la diapositiva dejamos a su disposición el enlace directo a nuestro tablero oficial
+en Atlassian Jira para verificar la actividad en vivo y el seguimiento del proyecto."
+
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 10: CONCLUSIÓN Y DEMOSTRACIÓN EN VIVO
+--------------------------------------------------------------------------------
+SPEECH:
+"Como conclusión de esta segunda entrega: el núcleo de LogiRed se encuentra
+plenamente operativo, robusto y alineado a las buenas prácticas de la ingeniería
+de software corporativa.
+
+Logramos desacoplar con éxito la arquitectura en tres capas, fundamentar cada
+decisión técnica a través de nuestra suite formal de ADRs, blindar la lógica de
+negocio mediante el patrón State con su correspondiente rechazo HTTP 409 Conflict ante
+transiciones inválidas, e implementar una infraestructura de mensajería asincrónica
+reactiva y desacoplada sobre Apache ActiveMQ.
+
+Asimismo, contamos con un control de acceso declarativo basado en roles (RBAC) y una
+batería de tests automatizados que nos brinda total confianza y estabilidad para
+encarar las integraciones de la entrega final.
+
+Agradecemos mucho su tiempo y atención. Quedamos a total disposición para responder
+cualquier pregunta técnica o de diseño que deseen profundizar, y si les parece bien,
+abrimos la pantalla para iniciar de inmediato la demostración interactiva en vivo."
+
+================================================================================
+FIN DEL GUION DE EXPOSICIÓN
+================================================================================

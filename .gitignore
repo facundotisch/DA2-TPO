@@ -5,3 +5,5 @@ primer-componente/
 backend/target/
 .idea/
 *.iml
+
+~$*
