@@ -2,8 +2,10 @@ package logired.backend.pedido.controller;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,8 +16,10 @@ import org.springframework.http.MediaType;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import logired.backend.producto.repository.ProductoRepository;
 import logired.backend.pedido.dto.PedidoCreacionRequest;
+import logired.backend.pedido.exception.TransicionInvalidaException;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,71 +42,97 @@ class PedidoSecurityTests {
     @Autowired
     private ProductoRepository productoRepository;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @MockitoBean
     private PedidoService pedidoService;
 
     @Test
-    void operadorPuedeCrearPedido() throws Exception {
-        when(pedidoService.crear(any(Pedido.class)))
-                .thenReturn(new Pedido("Entrega local", "CREADO", 1200.0));
-
-        mockMvc.perform(post("/api/pedido")
-                        .with(user("operador").roles("OPERADOR"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"descripcion\":\"Entrega local\",\"total\":1200}"))
-                .andExpect(status().isOk());
-    }
-
-            @Test
-            void pedidoSinItemsSolicitadosRecibeUnProductoDeCatalogo() throws Exception {
-            var producto = productoRepository.findBySku("IND-001").orElseThrow();
-            Pedido pedido = new Pedido("Pedido aleatorio", "CREADO", 59990.0);
-            pedido.setClienteNombre("Cliente Demo");
-            pedido.setDireccionEntrega("Av. Corrientes 123");
-            pedido.agregarItem(new logired.backend.pedido.entity.PedidoItem(
-                producto, null, 1, producto.getPrecio()));
-            when(pedidoService.crearDesdeCatalogo(any(PedidoCreacionRequest.class))).thenReturn(pedido);
-
+    void pedidoSinProductosSeleccionadosEsRechazado() throws Exception {
+            when(pedidoService.crearDesdeCatalogo(any(PedidoCreacionRequest.class)))
+                    .thenThrow(new IllegalArgumentException("Debe seleccionar al menos un producto para el pedido."));
             mockMvc.perform(post("/api/pedido")
                     .with(user("operador").roles("OPERADOR"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"clienteNombre\":\"Cliente Demo\",\"direccionEntrega\":\"Av. Corrientes 123\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value(
+                            "Debe seleccionar al menos un producto para el pedido."));
+    }
+
+    @Test
+    void operadorPuedeCrearYEditarCatalogoPeroSoloAdminPuedeEliminar() throws Exception {
+        String sku = "MANUAL-" + UUID.randomUUID();
+        String alta = """
+                {"sku":"%s","nombre":"Auriculares nuevos","descripcion":"Bluetooth",
+                 "categoria":"Audio","precio":85000,"moneda":"ARS",
+                 "stockDisponible":5,"stockBloqueado":0}
+                """.formatted(sku);
+
+        MvcResult resultadoAlta = mockMvc.perform(post("/api/productos")
+                        .with(user("operador").roles("OPERADOR"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(alta))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long id = objectMapper.readTree(resultadoAlta.getResponse().getContentAsString())
+                .get("id").asLong();
+
+        mockMvc.perform(put("/api/productos/" + id)
+                        .with(user("operador").roles("OPERADOR"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {"sku":"%s","nombre":"Auriculares editados","descripcion":"Bluetooth",
+                             "categoria":"Audio","precio":90000,"moneda":"ARS",
+                             "stockDisponible":8,"stockBloqueado":0}
+                            """.formatted(sku)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(1))
-                .andExpect(jsonPath("$.items[0].producto.sku").value("IND-001"))
-                .andExpect(jsonPath("$.items[0].cantidad").value(1));
-            }
+                .andExpect(jsonPath("$.nombre").value("Auriculares editados"))
+                .andExpect(jsonPath("$.stockDisponible").value(8));
+
+        mockMvc.perform(delete("/api/productos/" + id)
+                        .with(user("operador").roles("OPERADOR")))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/productos/" + id)
+                        .with(user("otro-admin").roles("ADMIN")))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/productos/" + id)
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isNoContent());
+    }
 
             @Test
             void operadorPuedeCrearPedidoConProductosYCantidades() throws Exception {
             Pedido pedido = new Pedido("Pedido de Cliente Demo", "CREADO", 119980.0);
             pedido.setClienteNombre("Cliente Demo");
             pedido.setDireccionEntrega("Av. Corrientes 123");
+            var producto = productoRepository.findBySku("ZAP-NIKE-001").orElseThrow();
             pedido.agregarItem(new logired.backend.pedido.entity.PedidoItem(
-                productoRepository.findBySku("IND-001").orElseThrow(),
-                pedido.getDeposito(), 2, new java.math.BigDecimal("59990.00")));
+                producto,
+                pedido.getDeposito(), 2, new java.math.BigDecimal("129999.00")));
             when(pedidoService.crearDesdeCatalogo(any())).thenReturn(pedido);
 
             mockMvc.perform(post("/api/pedido")
                     .with(user("operador").roles("OPERADOR"))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("""
-                        {"clienteNombre":"Cliente Demo","direccionEntrega":"Av. Corrientes 123",
-                         "items":[{"productoId":1,"cantidad":2}]}
-                        """))
+                    .content("{\"clienteNombre\":\"Cliente Demo\",\"direccionEntrega\":\"Av. Corrientes 123\","
+                            + "\"items\":[{\"productoId\":" + producto.getId() + ",\"cantidad\":2}]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].cantidad").value(2))
-                .andExpect(jsonPath("$.items[0].precioUnitario").value(59990.0))
+                .andExpect(jsonPath("$.items[0].precioUnitario").value(129999.0))
                 .andExpect(jsonPath("$.clienteNombre").value("Cliente Demo"));
             }
 
     @Test
     void productoTieneDetalleDeVendedorYStockPorDeposito() throws Exception {
-        Long productoId = productoRepository.findBySku("IND-001").orElseThrow().getId();
+        Long productoId = productoRepository.findBySku("ZAP-NIKE-001").orElseThrow().getId();
 
         mockMvc.perform(get("/api/productos/" + productoId).with(user("operador").roles("OPERADOR")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sku").value("IND-001"))
+                .andExpect(jsonPath("$.sku").value("ZAP-NIKE-001"))
                 .andExpect(jsonPath("$.precio").exists())
                 .andExpect(jsonPath("$.vendedor.nombre").value("Tienda Urbana"))
                 .andExpect(jsonPath("$.stockPorDeposito[0].deposito").exists())
@@ -112,6 +142,15 @@ class PedidoSecurityTests {
                 .andExpect(jsonPath("$.ubicacion.longitud").value(-58.3816))
                 .andExpect(jsonPath("$.ubicacion.openStreetMapUrl").value(
                     org.hamcrest.Matchers.containsString("openstreetmap.org")));
+    }
+
+    @Test
+    void catalogoDePedidosSoloMuestraProductosConStockDisponible() throws Exception {
+        mockMvc.perform(get("/api/productos").with(user("operador").roles("OPERADOR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[0].stockDisponible").value(
+                        org.hamcrest.Matchers.greaterThan(0)));
     }
 
     @Test
@@ -130,19 +169,25 @@ class PedidoSecurityTests {
                 .andExpect(status().isNoContent());
     }
 
-            @Test
-            void operadorNoPuedeActualizarPedido() throws Exception {
+    @Test
+    void operadorPuedeActualizarPedido() throws Exception {
+            Pedido pedido = new Pedido("Cambio", "CREADO", 1200.0);
+            when(pedidoService.actualizarDesdeCatalogo(
+                    org.mockito.ArgumentMatchers.eq(1L), any(PedidoCreacionRequest.class)))
+                    .thenReturn(Optional.of(pedido));
             mockMvc.perform(put("/api/pedido/1")
                     .with(user("operador").roles("OPERADOR"))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"descripcion\":\"Cambio\",\"estado\":\"EN_RUTA\",\"total\":1200}"))
-                .andExpect(status().isForbidden());
-            }
+                    .content("{\"descripcion\":\"Cambio\",\"estado\":\"CREADO\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.descripcion").value("Cambio"));
+    }
 
             @Test
             void administradorPuedeActualizarPedidoExistente() throws Exception {
             Pedido pedido = new Pedido("Entrega local", "EN_RUTA", 1200.0);
-            when(pedidoService.actualizar(org.mockito.ArgumentMatchers.eq(7L), any(Pedido.class)))
+            when(pedidoService.actualizarDesdeCatalogo(
+                    org.mockito.ArgumentMatchers.eq(7L), any(PedidoCreacionRequest.class)))
                 .thenReturn(Optional.of(pedido));
 
             mockMvc.perform(put("/api/pedido/7")
@@ -155,14 +200,23 @@ class PedidoSecurityTests {
 
             @Test
             void obtenerTodosDevuelvePedidos() throws Exception {
-            when(pedidoService.obtenerTodos()).thenReturn(List.of(
-                new Pedido("Paquete A", "CREADO", 500.0),
-                new Pedido("Paquete B", "EN_RUTA", 800.0)));
+            Pedido primero = new Pedido("Paquete A", "CREADO", 500.0);
+            primero.setDireccionEntrega("Av. Corrientes 1234, CABA");
+            primero.setDeposito(new logired.backend.deposito.entity.Deposito(
+                    "Central", "Av. 9 de Julio, CABA", -34.6037, -58.3816));
+            Pedido segundo = new Pedido("Paquete B", "EN_RUTA", 800.0);
+            segundo.setDeposito(new logired.backend.deposito.entity.Deposito(
+                    "Central", "Av. 9 de Julio, CABA", -34.6037, -58.3816));
+            when(pedidoService.obtenerTodos()).thenReturn(List.of(primero, segundo));
 
             mockMvc.perform(get("/api/pedido").with(user("operador").roles("OPERADOR")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].descripcion").value("Paquete A"))
-                .andExpect(jsonPath("$[1].estado").value("EN_RUTA"));
+                .andExpect(jsonPath("$[1].estado").value("EN_RUTA"))
+                .andExpect(jsonPath("$[0].mapaEntregaUrl").value(
+                        org.hamcrest.Matchers.containsString("openstreetmap.org/search")))
+                .andExpect(jsonPath("$[1].mapaEntregaUrl").value(
+                        org.hamcrest.Matchers.containsString("openstreetmap.org")));
             }
 
             @Test
@@ -175,7 +229,8 @@ class PedidoSecurityTests {
 
             @Test
             void actualizarPedidoInexistenteDevuelve404() throws Exception {
-            when(pedidoService.actualizar(org.mockito.ArgumentMatchers.eq(999L), any(Pedido.class)))
+            when(pedidoService.actualizarDesdeCatalogo(
+                    org.mockito.ArgumentMatchers.eq(999L), any(PedidoCreacionRequest.class)))
                 .thenReturn(Optional.empty());
 
             mockMvc.perform(put("/api/pedido/999")
@@ -197,6 +252,8 @@ class PedidoSecurityTests {
             @Test
             @WithMockUser(username = "admin", roles = {"ADMIN"})
             void transicionInvalidaDeEstadoDevuelve409Conflict() throws Exception {
+                org.mockito.Mockito.doThrow(new TransicionInvalidaException("Transición inválida"))
+                        .when(pedidoService).cambiarEstado(1L, "ENTREGAR");
                 mockMvc.perform(patch("/api/pedido/1/estado")
                         .param("accion", "ENTREGAR"))
                         .andExpect(status().isConflict());

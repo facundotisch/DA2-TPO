@@ -4,22 +4,21 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import logired.backend.pedido.entity.Pedido;
 import logired.backend.pedido.dto.PedidoCreacionRequest;
+import logired.backend.pedido.entity.Pedido;
 import logired.backend.pedido.service.PedidoService;
-
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 @RequestMapping("/api/pedido")
@@ -57,9 +56,9 @@ public class PedidoController {
             if (!request.tieneItemsDeCatalogo()
                     && request.getDescripcion() != null
                     && request.getDescripcion().contains("SKU:")) {
-            Pedido legacy = new Pedido(request.getDescripcion(), request.getEstado(), request.getTotal());
-            legacy.setClienteNombre(request.getClienteNombre());
-            legacy.setDireccionEntrega(request.getDireccionEntrega());
+                Pedido legacy = new Pedido(request.getDescripcion(), request.getEstado(), request.getTotal());
+                legacy.setClienteNombre(request.getClienteNombre());
+                legacy.setDireccionEntrega(request.getDireccionEntrega());
                 return ResponseEntity.ok(pedidoService.crear(legacy));
             }
             return ResponseEntity.ok(pedidoService.crearDesdeCatalogo(request));
@@ -70,18 +69,22 @@ public class PedidoController {
 
     // PUT /api/pedido/{id}
     @PutMapping("/{id}")
-    public ResponseEntity<Pedido> actualizar(
+    public ResponseEntity<?> actualizar(
             @PathVariable Long id,
-            @RequestBody Pedido pedido) {
+            @RequestBody PedidoCreacionRequest request) {
 
-        return pedidoService.actualizar(id, pedido)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        try {
+            return pedidoService.actualizarDesdeCatalogo(id, request)
+                    .<ResponseEntity<?>>map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
     }
 
-    // DELETE /api/pedido/{id} - OPERACIÓN SENSIBLE RESTRINGIDA A ADMIN (Seguridad Declarativa)
+    // DELETE /api/pedido/{id}
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') and authentication.name == 'admin'")
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
 
         if (!pedidoService.eliminar(id)) {
@@ -92,8 +95,9 @@ public class PedidoController {
     }
 
     @PatchMapping("/{id}/estado")
-public ResponseEntity<Pedido> actualizarEstado(@PathVariable Long id, @RequestParam String accion) {
-    Pedido actualizado = pedidoService.cambiarEstado(id, accion);
-    return ResponseEntity.ok(actualizado);
-}
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
+    public ResponseEntity<Pedido> actualizarEstado(@PathVariable Long id, @RequestParam String accion) {
+        Pedido actualizado = pedidoService.cambiarEstado(id, accion);
+        return ResponseEntity.ok(actualizado);
+    }
 }

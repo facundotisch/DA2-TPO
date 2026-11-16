@@ -5,6 +5,8 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import jakarta.persistence.LockModeType;
 import logired.backend.inventario.entity.ItemInventario;
@@ -18,6 +20,10 @@ public interface InventarioRepository extends JpaRepository<ItemInventario, Long
     Optional<ItemInventario> findBySkuAndDeposito(String sku, String deposito);
 
     List<ItemInventario> findBySku(String sku);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select item from ItemInventario item where item.sku = :sku")
+    List<ItemInventario> findAllForUpdateBySku(@Param("sku") String sku);
 
     List<ItemInventario> findByDeposito(String deposito);
 }

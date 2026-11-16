@@ -11,6 +11,8 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.PostLoad;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import logired.backend.deposito.entity.Deposito;
@@ -171,6 +173,14 @@ public class Pedido {
 
     public List<PedidoItem> getItems() {
         return items;
+    }
+
+    public String getMapaEntregaUrl() {
+        if (direccionEntrega != null && !direccionEntrega.isBlank()) {
+            return "https://www.openstreetmap.org/search?query="
+                    + URLEncoder.encode(direccionEntrega, StandardCharsets.UTF_8);
+        }
+        return deposito == null ? null : deposito.getOpenStreetMapUrl();
     }
 
     public void agregarItem(PedidoItem item) {

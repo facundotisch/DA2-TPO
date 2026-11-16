@@ -7,15 +7,20 @@ import java.util.Objects;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import logired.backend.inventario.dto.ProductoStockRequest;
 import logired.backend.inventario.dto.ReservaStockRequest;
 import logired.backend.inventario.dto.ReservaStockResponse;
 import logired.backend.inventario.entity.ItemInventario;
+import logired.backend.inventario.service.InventarioCatalogoService;
 import logired.backend.inventario.service.InventarioService;
 
 /**
@@ -26,14 +31,52 @@ import logired.backend.inventario.service.InventarioService;
 public class InventarioController {
 
     private final InventarioService inventarioService;
+    private final InventarioCatalogoService catalogoService;
 
-    public InventarioController(InventarioService inventarioService) {
+    public InventarioController(
+            InventarioService inventarioService,
+            InventarioCatalogoService catalogoService) {
         this.inventarioService = inventarioService;
+        this.catalogoService = catalogoService;
     }
 
     @GetMapping
     public ResponseEntity<List<ItemInventario>> obtenerTodos() {
         return ResponseEntity.ok(inventarioService.obtenerTodos());
+    }
+
+    @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
+    public ResponseEntity<?> crear(@RequestBody ProductoStockRequest request) {
+        try {
+            return ResponseEntity.status(201).body(catalogoService.crear(request));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
+    public ResponseEntity<?> actualizar(@PathVariable Long id, @RequestBody ProductoStockRequest request) {
+        try {
+            return catalogoService.actualizar(id, request)
+                    .<ResponseEntity<?>>map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') and authentication.name == 'admin'")
+    public ResponseEntity<?> eliminar(@PathVariable Long id) {
+        try {
+            return catalogoService.eliminar(id)
+                    ? ResponseEntity.noContent().build()
+                    : ResponseEntity.notFound().build();
+        } catch (IllegalStateException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
     }
 
     @PostMapping("/reservar")

@@ -57,13 +57,6 @@ public class InventarioServiceImpl implements InventarioService {
         log.info("ID Sesión Conversacional: {} | Creado: {}", idSesionConversacional, fechaInicioSesion);
         log.info("=========================================================================");
 
-        // Seed inicial si la base está vacía (datos iniciales en PostgreSQL)
-        if (inventarioRepository.count() == 0) {
-            inventarioRepository.save(new ItemInventario("IND-001", "Zapatillas Urbanas Running", "Depósito Central Barracas", 45, 0));
-            inventarioRepository.save(new ItemInventario("IND-002", "Campera Impermeable Térmica", "Depósito Central Barracas", 20, 0));
-            inventarioRepository.save(new ItemInventario("ELEC-010", "Auriculares Bluetooth Pro", "Depósito Norte Munro", 60, 0));
-            log.info("[POSTGRESQL SEED] Se inicializaron 3 ítems en la tabla items_inventario.");
-        }
     }
 
     /**
