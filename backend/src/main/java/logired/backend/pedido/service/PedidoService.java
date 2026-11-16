@@ -107,7 +107,7 @@ public class PedidoService {
 
         Deposito depositoSolicitado = obtenerDepositoSolicitado(request.getDepositoId());
         if (request.getItems() == null || request.getItems().isEmpty()) {
-            request.setItems(seleccionarItemsAleatorios(depositoSolicitado));
+            throw new IllegalArgumentException("Debe seleccionar al menos un producto para el pedido.");
         }
 
         List<ItemReservado> reservas = seleccionarReservas(request, depositoSolicitado);
@@ -336,6 +336,8 @@ public class PedidoService {
         return pedidoRepository.findById(id).map(pedido -> {
             pedido.setDescripcion(datos.getDescripcion());
             pedido.setEstado(datos.getEstado());
+            pedido.setClienteNombre(datos.getClienteNombre());
+            pedido.setDireccionEntrega(datos.getDireccionEntrega());
             if (pedido.getItems() == null || pedido.getItems().isEmpty()) {
                 pedido.setTotal(datos.getTotal());
             }
@@ -343,28 +345,74 @@ public class PedidoService {
         });
     }
 
+    @Transactional
+    public Optional<Pedido> actualizarDesdeCatalogo(Long id, PedidoCreacionRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("La solicitud del pedido es obligatoria.");
+        }
+
+        return pedidoRepository.findById(id).map(pedido -> {
+            if (request.getClienteNombre() != null) {
+                pedido.setClienteNombre(request.getClienteNombre());
+            }
+            if (request.getDireccionEntrega() != null) {
+                pedido.setDireccionEntrega(request.getDireccionEntrega());
+            }
+            if (request.getDescripcion() != null) {
+                pedido.setDescripcion(request.getDescripcion());
+            }
+            if (request.getEstado() != null) {
+                pedido.setEstado(request.getEstado());
+            }
+
+            if (request.tieneItemsDeCatalogo()) {
+                liberarReservasDelPedido(pedido);
+                pedido.getItems().clear();
+                Deposito depositoSolicitado = obtenerDepositoSolicitado(request.getDepositoId());
+                List<ItemReservado> reservas = seleccionarReservas(request, depositoSolicitado);
+                pedido.setDeposito(reservas.get(0).deposito());
+                if (request.getDescripcion() == null) {
+                    pedido.setDescripcion("Pedido de " + valorTexto(pedido.getClienteNombre(), "Cliente")
+                            + " | Entrega: " + valorTexto(pedido.getDireccionEntrega(), "Dirección pendiente"));
+                }
+                pedido.setTotal(reservarItemsEnPedido(pedido, reservas).doubleValue());
+            }
+
+            return pedidoRepository.save(pedido);
+        });
+    }
+
+    private void liberarReservasDelPedido(Pedido pedido) {
+        if (pedido.getItems() == null) {
+            return;
+        }
+
+        for (PedidoItem linea : pedido.getItems()) {
+            Deposito depositoLinea = linea.getDeposito() != null ? linea.getDeposito() : pedido.getDeposito();
+            if (depositoLinea == null) {
+                continue;
+            }
+            inventarioRepository.findBySkuAndDeposito(
+                    linea.getProducto().getSku(), depositoLinea.getNombre()).ifPresent(item -> {
+                        int bloqueado = valorStock(item.getStockBloqueado());
+                        int cantidadLiberada = Math.min(bloqueado, linea.getCantidad());
+                        if (cantidadLiberada > 0) {
+                            item.setStockBloqueado(bloqueado - cantidadLiberada);
+                            item.setStockDisponible(valorStock(item.getStockDisponible()) + cantidadLiberada);
+                            inventarioRepository.save(item);
+                        }
+                    });
+        }
+    }
+
+    @Transactional
     public boolean eliminar(Long id) {
         Optional<Pedido> pedidoOpt = pedidoRepository.findById(id);
         if (pedidoOpt.isEmpty()) return false;
 
         Pedido pedido = pedidoOpt.get();
         if (pedido.getItems() != null && !pedido.getItems().isEmpty()) {
-            for (PedidoItem linea : pedido.getItems()) {
-                Deposito depositoLinea = linea.getDeposito() != null ? linea.getDeposito() : pedido.getDeposito();
-                if (depositoLinea == null) {
-                    continue;
-                }
-                inventarioRepository.findBySkuAndDeposito(
-                        linea.getProducto().getSku(), depositoLinea.getNombre()).ifPresent(item -> {
-                            int bloqueado = valorStock(item.getStockBloqueado());
-                            int cantidadLiberada = Math.min(bloqueado, linea.getCantidad());
-                            if (cantidadLiberada > 0) {
-                                item.setStockBloqueado(bloqueado - cantidadLiberada);
-                                item.setStockDisponible(valorStock(item.getStockDisponible()) + cantidadLiberada);
-                                inventarioRepository.save(item);
-                            }
-                        });
-            }
+            liberarReservasDelPedido(pedido);
         }
         if (pedido.getItems() == null || pedido.getItems().isEmpty()) {
             liberarStockDesdeDescripcion(pedido);

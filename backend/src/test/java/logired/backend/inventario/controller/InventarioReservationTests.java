@@ -8,14 +8,20 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import logired.backend.inventario.entity.ItemInventario;
 import logired.backend.inventario.repository.InventarioRepository;
+import logired.backend.inventario.service.InventarioCatalogoService;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -26,6 +32,44 @@ class InventarioReservationTests {
 
     @Autowired
     private InventarioRepository inventarioRepository;
+
+    @MockitoBean
+    private InventarioCatalogoService catalogoService;
+
+    @Test
+    void operadorPuedeCrearEditarYEliminarStock() throws Exception {
+        ItemInventario item = new ItemInventario("ZAP-001", "Zapatillas urbanas", "Central", 10, 0);
+        when(catalogoService.crear(any())).thenReturn(item);
+        when(catalogoService.actualizar(org.mockito.ArgumentMatchers.eq(8L), any()))
+                .thenReturn(java.util.Optional.of(item));
+        when(catalogoService.eliminar(8L)).thenReturn(true);
+
+        mockMvc.perform(post("/api/inventario")
+                        .with(user("operador").roles("OPERADOR"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {"sku":"ZAP-001","nombre":"Zapatillas urbanas","categoria":"Calzado",
+                             "precio":85000,"cantidad":10,"deposito":"Central"}
+                            """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/api/inventario/8")
+                        .with(user("operador").roles("OPERADOR"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {"sku":"ZAP-001","nombre":"Zapatillas urbanas","categoria":"Calzado",
+                             "precio":89000,"cantidad":12,"deposito":"Central"}
+                            """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/inventario/8")
+                        .with(user("operador").roles("OPERADOR")))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/inventario/8")
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isNoContent());
+    }
 
     @Test
     void reservaYLiberaStockDentroDeLaMismaSesion() throws Exception {

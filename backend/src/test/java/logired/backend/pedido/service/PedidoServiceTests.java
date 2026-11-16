@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import static org.mockito.ArgumentMatchers.any;
@@ -51,32 +52,9 @@ class PedidoServiceTests {
     private PedidoService pedidoService;
 
     @Test
-    void crearSinLineasAgregaUnProductoYReservaStockDelInventario() {
-        Vendedor vendedor = new Vendedor("Tienda", "ventas@tienda.demo", "Catálogo");
-        Producto producto = new Producto("SKU-001", "Producto", "Producto demo", "General",
-                new BigDecimal("1200.00"), vendedor);
-        org.springframework.test.util.ReflectionTestUtils.setField(producto, "id", 1L);
-        Deposito deposito = new Deposito("Central", "Av. 9 de Julio, CABA", -34.6037, -58.3816);
-        ItemInventario stock = new ItemInventario("SKU-001", "Producto", "Central", 5, 0);
-        stock.setProducto(producto);
+    void crearSinProductosSeleccionadosEsRechazado() {
         Pedido pedido = new Pedido("Pedido de prueba", null, null);
-        when(inventarioRepository.findAll()).thenReturn(List.of(stock));
-        when(productoRepository.findAllById(Set.of(1L))).thenReturn(List.of(producto));
-        when(inventarioRepository.findBySku("SKU-001")).thenReturn(List.of(stock));
-        when(inventarioRepository.findBySkuAndDeposito("SKU-001", "Central")).thenReturn(Optional.of(stock));
-        when(depositoRepository.findByNombre("Central")).thenReturn(Optional.of(deposito));
-        when(pedidoRepository.save(any(Pedido.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        Pedido creado = pedidoService.crear(pedido);
-
-        assertEquals("CREADO", creado.getEstado());
-        assertEquals(1, creado.getItems().size());
-        assertEquals(1, creado.getItems().get(0).getCantidad());
-        assertEquals("SKU-001", creado.getItems().get(0).getProducto().getSku());
-        assertEquals(4, stock.getStockDisponible());
-        assertEquals(1, stock.getStockBloqueado());
-        assertEquals(1200.0, creado.getTotal());
-        assertSame(deposito, creado.getItems().get(0).getDeposito());
+        assertThrows(IllegalArgumentException.class, () -> pedidoService.crear(pedido));
     }
 
     @Test
