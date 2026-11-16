@@ -372,4 +372,29 @@ public class PedidoService {
         pedidoRepository.deleteById(id);
         return true;
     }
+
+    @Transactional
+public Pedido cambiarEstado(Long id, String accion) {
+    Pedido pedido = pedidoRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("Pedido no encontrado"));
+
+    switch (accion.toUpperCase()) {
+        case "ASIGNAR":
+            pedido.avanzarAAsignado();
+            break;
+        case "EN_RUTA":
+            pedido.avanzarAEnRuta();
+            break;
+        case "ENTREGAR":
+            pedido.avanzarAEntregado();
+            break;
+        case "FALLAR":
+            pedido.reportarFalla();
+            break;
+        default:
+            throw new IllegalArgumentException("Acción no reconocida: " + accion);
+    }
+
+    return pedidoRepository.save(pedido);
+}
 }

@@ -191,4 +191,12 @@ class PedidoSecurityTests {
                 .andExpect(status().isNotFound());
             verify(pedidoService).eliminar(999L);
             }
+
+            @Test
+            @WithMockUser(username = "admin", roles = {"ADMIN"})
+            void transicionInvalidaDeEstadoDevuelve409Conflict() throws Exception {
+                mockMvc.perform(patch("/api/pedido/1/estado")
+                        .param("accion", "ENTREGAR"))
+                        .andExpect(status().isConflict());
+            }
 }
