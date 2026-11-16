@@ -18,6 +18,9 @@ import logired.backend.pedido.entity.Pedido;
 import logired.backend.pedido.dto.PedidoCreacionRequest;
 import logired.backend.pedido.service.PedidoService;
 
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
 @RestController
 @RequestMapping("/api/pedido")
 public class PedidoController {
