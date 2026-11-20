@@ -9,6 +9,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -63,6 +64,43 @@ class AuthFlowTests {
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.mensaje").value("Credenciales inválidas"));
+    }
+
+    @Test
+    void bloqueaElSextoIntentoFallidoCon429YRetryAfter() throws Exception {
+        for (int intento = 1; intento <= 5; intento++) {
+            var result = mockMvc.perform(post("/api/auth/login")
+                            .with(request -> {
+                                request.setRemoteAddr("192.0.2.25");
+                                return request;
+                            })
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"username\":\"no-existe\",\"password\":\"incorrecta\"}"))
+                    .andReturn();
+
+            if (intento < 5) {
+                org.junit.jupiter.api.Assertions.assertEquals(
+                        401, result.getResponse().getStatus());
+            } else {
+                org.junit.jupiter.api.Assertions.assertEquals(
+                        429, result.getResponse().getStatus());
+                org.junit.jupiter.api.Assertions.assertNotNull(
+                        result.getResponse().getHeader("Retry-After"));
+                org.junit.jupiter.api.Assertions.assertTrue(
+                        result.getResponse().getContentAsString().contains("Demasiados intentos"));
+            }
+        }
+
+        mockMvc.perform(post("/api/auth/login")
+                        .with(request -> {
+                            request.setRemoteAddr("192.0.2.25");
+                            return request;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"operador\",\"password\":\"operador123\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(jsonPath("$.status").value(429));
     }
 
     @Test

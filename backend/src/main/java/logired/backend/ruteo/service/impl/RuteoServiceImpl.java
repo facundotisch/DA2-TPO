@@ -50,6 +50,9 @@ public class RuteoServiceImpl implements RuteoService {
                 ? estrategias.getOrDefault(criterio.toUpperCase(), estrategiaPorDefecto)
                 : estrategiaPorDefecto;
 
+        if (seleccionada == null) {
+            throw new IllegalStateException("No hay estrategias de ruteo configuradas.");
+        }
         return seleccionada.calcularRuta(request.getDirecciones());
     }
 }

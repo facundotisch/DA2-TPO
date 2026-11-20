@@ -35,6 +35,7 @@ Esta seccion es el contrato vigente que debe seguir el cliente React. Las rutas 
 - Para toda solicitud protegida, el frontend debe enviar `Authorization: Basic <base64(username:password)>`. No inventar un token ni usar el usuario guardado en la interfaz como prueba de autenticacion: el backend valida las credenciales en cada solicitud protegida.
 - El frontend puede guardar las credenciales durante la sesion del navegador y eliminarlas al cerrar sesion. Base64 no cifra la contrasena; usar HTTPS fuera del entorno local y nunca guardar credenciales en el codigo fuente.
 - Credenciales de desarrollo sembradas: `operador/operador123` y `admin/admin123`. No usar estas claves en un despliegue real.
+- Se permiten hasta cinco fallos de login por IP cada 60 segundos; al alcanzar el límite se responde HTTP 429 con `Retry-After`. Un login exitoso limpia el contador de esa IP. El contador es local a la instancia.
 - Si login responde HTTP 401, mostrar que las credenciales son invalidas y no guardar una sesion local.
 
 Las solicitudes protegidas deben manejar los codigos HTTP en lugar de asumir que toda respuesta es exitosa:
@@ -43,6 +44,7 @@ Las solicitudes protegidas deben manejar los codigos HTTP en lugar de asumir que
 | --- | --- | --- |
 | `400` | Datos invalidos, stock insuficiente u otra regla de negocio; normalmente el backend envia `{"error":"..."}` o `{"mensaje":"..."}`. | Mostrar el texto recibido; no mostrar confirmacion de exito. |
 | `401` | Falta autenticacion o las credenciales son invalidas/expiraron. | Pedir iniciar sesion de nuevo. |
+| `429` | Se alcanzó el límite de intentos de login desde esa IP. | Esperar el tiempo indicado en `Retry-After` antes de volver a intentar. |
 | `403` | El usuario esta autenticado pero su rol/cuenta no tiene permiso. | Mostrar acceso denegado; no reintentar con permisos locales. |
 | `404` | El producto, pedido o fila de inventario no existe. | Informar que el registro ya no esta disponible y refrescar la lista. |
 | `409` | Un producto no se puede borrar porque tiene unidades reservadas en pedidos activos. | Explicar que primero debe resolverse el pedido que reserva el stock. |
