@@ -6,4 +6,8 @@ backend/target/
 .idea/
 *.iml
 
+# Variables de entorno locales con contraseñas
+.env
+
+# Archivos temporales de Office
 ~$*

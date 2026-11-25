@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jms.core.JmsTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,22 +47,28 @@ public class PedidoService {
     private final InventarioRepository inventarioRepository;
     private final ProductoRepository productoRepository;
     private final JmsTemplate jmsTemplate;
+    private final JmsTemplate queueJmsTemplate;
     private final ObjectMapper objectMapper;
 
     @Value("${logired.jms.topic.envios-creados:logired.envios.creados}")
     private String topicEnviosCreados;
+
+    @Value("${logired.jms.queue.pedidos-creados:logired.pedidos.creados}")
+    private String queuePedidosCreados;
 
     public PedidoService(PedidoRepository pedidoRepository,
                          DepositoRepository depositoRepository,
                          InventarioRepository inventarioRepository,
                          ProductoRepository productoRepository,
                          @Autowired(required = false) JmsTemplate jmsTemplate,
+                         @Autowired(required = false) @Qualifier("queueJmsTemplate") JmsTemplate queueJmsTemplate,
                          @Autowired(required = false) ObjectMapper objectMapper) {
         this.pedidoRepository = pedidoRepository;
         this.depositoRepository = depositoRepository;
         this.inventarioRepository = inventarioRepository;
         this.productoRepository = productoRepository;
         this.jmsTemplate = jmsTemplate;
+        this.queueJmsTemplate = queueJmsTemplate;
         this.objectMapper = objectMapper;
     }
 
@@ -325,6 +332,14 @@ public class PedidoService {
                 message.setStringProperty("tipoEvento", "PEDIDO_CREADO");
                 return message;
             });
+
+            if (queueJmsTemplate != null) {
+                queueJmsTemplate.send(queuePedidosCreados, session -> {
+                    TextMessage message = session.createTextMessage(jsonPayload);
+                    message.setStringProperty("tipoEvento", "PEDIDO_CREADO");
+                    return message;
+                });
+            }
 
             log.info("🚀 [PRODUCTOR JMS] Evento publicado en tópico '{}': Pedido #{}", topicEnviosCreados, pedido.getId());
         } catch (Exception e) {

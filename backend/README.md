@@ -2,6 +2,7 @@
 
 ## Implementado
 
+- Build reproducible desde la raíz con `./build.sh` (requiere JDK 17 y Docker activo o PostgreSQL local más sus herramientas cliente); crea una base temporal aislada, ejecuta `clean verify` con Maven Wrapper fijado y limpia el recurso al terminar. El mismo comando se ejecuta en CI.
 - Stack: Java 17, Spring Boot 4.1.1, Spring MVC, Spring Data JPA y PostgreSQL.
 - API REST de pedidos bajo `/api/pedido` con operaciones de consulta, alta, actualizacion y baja.
 - API REST de inventario bajo `/api/inventario`: consulta, alta, edicion y baja de productos/stock, ademas de reserva y liberacion. El hold se mantiene en la sesion HTTP y vence con el timeout de cinco minutos.
@@ -34,6 +35,7 @@ Esta seccion es el contrato vigente que debe seguir el cliente React. Las rutas 
 - Para toda solicitud protegida, el frontend debe enviar `Authorization: Basic <base64(username:password)>`. No inventar un token ni usar el usuario guardado en la interfaz como prueba de autenticacion: el backend valida las credenciales en cada solicitud protegida.
 - El frontend puede guardar las credenciales durante la sesion del navegador y eliminarlas al cerrar sesion. Base64 no cifra la contrasena; usar HTTPS fuera del entorno local y nunca guardar credenciales en el codigo fuente.
 - Credenciales de desarrollo sembradas: `operador/operador123` y `admin/admin123`. No usar estas claves en un despliegue real.
+- Se permiten hasta cinco fallos de login por IP cada 60 segundos; al alcanzar el límite se responde HTTP 429 con `Retry-After`. Un login exitoso limpia el contador de esa IP. El contador es local a la instancia.
 - Si login responde HTTP 401, mostrar que las credenciales son invalidas y no guardar una sesion local.
 
 Las solicitudes protegidas deben manejar los codigos HTTP en lugar de asumir que toda respuesta es exitosa:
@@ -42,6 +44,7 @@ Las solicitudes protegidas deben manejar los codigos HTTP en lugar de asumir que
 | --- | --- | --- |
 | `400` | Datos invalidos, stock insuficiente u otra regla de negocio; normalmente el backend envia `{"error":"..."}` o `{"mensaje":"..."}`. | Mostrar el texto recibido; no mostrar confirmacion de exito. |
 | `401` | Falta autenticacion o las credenciales son invalidas/expiraron. | Pedir iniciar sesion de nuevo. |
+| `429` | Se alcanzó el límite de intentos de login desde esa IP. | Esperar el tiempo indicado en `Retry-After` antes de volver a intentar. |
 | `403` | El usuario esta autenticado pero su rol/cuenta no tiene permiso. | Mostrar acceso denegado; no reintentar con permisos locales. |
 | `404` | El producto, pedido o fila de inventario no existe. | Informar que el registro ya no esta disponible y refrescar la lista. |
 | `409` | Un producto no se puede borrar porque tiene unidades reservadas en pedidos activos. | Explicar que primero debe resolverse el pedido que reserva el stock. |
@@ -204,8 +207,13 @@ Adapter sigue pendiente hasta implementar una integracion real con uno de los tr
 
 ## Requisitos generales aun pendientes
 
-- Publicar un servicio SOAP con WSDL para un sistema legado y consumir un servicio REST de partner; no estan implementados.
-- Implementar un flujo asincronico con cola punto a punto y otro con topico pub/sub usando un broker real.
+- Integración SOAP publicada en `GET /ws/legacy-ruteo.wsdl` y `POST /ws/legacy-ruteo`, con SOAP Fault y rechazo de DTD/entidades externas.
+- Integración REST modernizada publicada en `POST /api/integraciones/rest/ruteo`; la URL destino se configura con `logired.integraciones.rest.ruteo-url`.
+- La integración REST tiene un timeout configurable de 5 segundos (`logired.integraciones.rest.timeout-millis=5000`) y devuelve el ruteo local como fallback si vence, falla o no responde.
+- Los mensajes JMS se persisten en el broker y se reintentan antes de pasar a DLQ; los consumidores registran `eventoId + consumerName` en PostgreSQL para evitar reprocesamiento.
+- Las operaciones mutantes de pedidos aceptan `Idempotency-Key`; si se repite la misma clave con el mismo cuerpo devuelve la respuesta original y con otro cuerpo devuelve HTTP 409.
+- Las respuestas GET de pedidos incluyen `ETag`; el cliente puede enviar `If-None-Match` y recibe HTTP 304 cuando el recurso no cambió.
+- Flujos JMS asíncronos implementados en tópico `logired.envios.creados` y cola `logired.pedidos.creados`; ambos se publican al crear pedidos.
 - Implementar transacciones declarativas en un flujo critico que cruce varios componentes.
 - Completar los otros componentes del catalogo (Comercios, Repartidores, PagosYCobranzas, Notificaciones e IntegracionTransportistas).
 - Mejorar el ruteo para trabajar con coordenadas/calles reales y un proveedor de rutas si se requiere navegacion precisa.

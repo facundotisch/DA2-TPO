@@ -8,3 +8,8 @@ services:
     environment:
       - ACTIVEMQ_ADMIN_LOGIN=admin
       - ACTIVEMQ_ADMIN_PASSWORD=admin
+    volumes:
+      - activemq-data:/opt/activemq/data
+
+volumes:
+  activemq-data:

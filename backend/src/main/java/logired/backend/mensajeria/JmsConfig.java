@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jms.annotation.EnableJms;
 import org.springframework.jms.config.DefaultJmsListenerContainerFactory;
 import org.springframework.jms.core.JmsTemplate;
+import org.springframework.context.annotation.Primary;
 
 import java.net.Socket;
 
@@ -34,7 +35,8 @@ public class JmsConfig {
 
             embeddedBroker = new BrokerService();
             embeddedBroker.setBrokerName("logired-broker");
-            embeddedBroker.setPersistent(false);
+            embeddedBroker.setPersistent(true);
+            embeddedBroker.setDataDirectory("target/activemq-data");
             embeddedBroker.setUseJmx(false);
             embeddedBroker.addConnector("tcp://localhost:61616");
             embeddedBroker.start();
@@ -63,9 +65,25 @@ public class JmsConfig {
     }
 
     @Bean
+    @Primary
     public JmsTemplate jmsTemplate(ConnectionFactory connectionFactory) {
         JmsTemplate template = new JmsTemplate(connectionFactory);
         template.setPubSubDomain(true); // Fuerza envío a Tópico (Pub/Sub)
+        template.setReceiveTimeout(5000);
+        template.setDeliveryPersistent(true);
+        template.setExplicitQosEnabled(true);
+        template.setTimeToLive(0);
+        return template;
+    }
+
+    @Bean(name = "queueJmsTemplate")
+    public JmsTemplate queueJmsTemplate(ConnectionFactory connectionFactory) {
+        JmsTemplate template = new JmsTemplate(connectionFactory);
+        template.setPubSubDomain(false);
+        template.setReceiveTimeout(5000);
+        template.setDeliveryPersistent(true);
+        template.setExplicitQosEnabled(true);
+        template.setTimeToLive(0);
         return template;
     }
 
@@ -74,6 +92,18 @@ public class JmsConfig {
         DefaultJmsListenerContainerFactory factory = new DefaultJmsListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setPubSubDomain(true); // Fuerza escucha en Tópico (Pub/Sub)
+        factory.setSessionTransacted(true);
+        factory.setErrorHandler(error -> log.error("Error procesando mensaje JMS. Se aplica redelivery y DLQ.", error));
+        return factory;
+    }
+
+    @Bean(name = "queueJmsListenerContainerFactory")
+    public DefaultJmsListenerContainerFactory queueJmsListenerContainerFactory(ConnectionFactory connectionFactory) {
+        DefaultJmsListenerContainerFactory factory = new DefaultJmsListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setPubSubDomain(false);
+        factory.setSessionTransacted(true);
+        factory.setErrorHandler(error -> log.error("Error procesando mensaje de cola. Se aplica redelivery y DLQ.", error));
         return factory;
     }
 }

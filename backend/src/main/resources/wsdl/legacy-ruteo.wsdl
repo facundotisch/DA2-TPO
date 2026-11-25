@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://schemas.xmlsoap.org/wsdl/"
+             xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+             xmlns:tns="http://logired/backend/legacy"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             targetNamespace="http://logired/backend/legacy"
+             name="LegacyRuteoService">
+  <types>
+    <xsd:schema targetNamespace="http://logired/backend/legacy" elementFormDefault="qualified">
+      <xsd:element name="CalcularRutaRequest">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="direccion" type="xsd:string" maxOccurs="unbounded"/>
+            <xsd:element name="criterio" type="xsd:string" minOccurs="0"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="CalcularRutaResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="paradasOrdenadas" type="xsd:string" maxOccurs="unbounded"/>
+            <xsd:element name="distanciaTotalKm" type="xsd:double"/>
+            <xsd:element name="tiempoEstimadoMinutos" type="xsd:int"/>
+            <xsd:element name="estrategiaAplicada" type="xsd:string"/>
+            <xsd:element name="mensaje" type="xsd:string"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+    </xsd:schema>
+  </types>
+  <message name="CalcularRutaInput">
+    <part name="parameters" element="tns:CalcularRutaRequest"/>
+  </message>
+  <message name="CalcularRutaOutput">
+    <part name="parameters" element="tns:CalcularRutaResponse"/>
+  </message>
+  <portType name="LegacyRuteoPort">
+    <operation name="CalcularRuta">
+      <input message="tns:CalcularRutaInput"/>
+      <output message="tns:CalcularRutaOutput"/>
+    </operation>
+  </portType>
+  <binding name="LegacyRuteoBinding" type="tns:LegacyRuteoPort">
+    <soap:binding transport="http://schemas.xmlsoap.org/soap/http" style="document"/>
+    <operation name="CalcularRuta">
+      <soap:operation soapAction="CalcularRuta"/>
+      <input><soap:body use="literal"/></input>
+      <output><soap:body use="literal"/></output>
+    </operation>
+  </binding>
+  <service name="LegacyRuteoService">
+    <port name="LegacyRuteoPort" binding="tns:LegacyRuteoBinding">
+      <soap:address location="http://localhost:8080/ws/legacy-ruteo"/>
+    </port>
+  </service>
+</definitions>
