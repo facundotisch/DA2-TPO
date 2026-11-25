@@ -5,3 +5,6 @@ primer-componente/
 backend/target/
 .idea/
 *.iml
+
+# Variables de entorno locales con contraseñas
+.env
