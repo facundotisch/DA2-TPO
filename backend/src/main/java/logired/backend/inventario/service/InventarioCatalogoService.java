@@ -1,5 +1,6 @@
 package logired.backend.inventario.service;
 
+import logired.backend.common.exception.ConflictoException;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -95,7 +96,7 @@ public class InventarioCatalogoService {
             return false;
         }
         if (valor(item.get().getStockBloqueado()) > 0) {
-            throw new IllegalStateException("No se puede eliminar un producto con unidades reservadas.");
+            throw new ConflictoException("No se puede eliminar un producto con unidades reservadas.");
         }
         inventarioRepository.delete(item.get());
         return true;

@@ -3,6 +3,15 @@ package logired.backend.pedido.dto;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonAnySetter;
+
+/**
+ * Cuerpo de POST /api/pedido.
+ *
+ * No tiene "estado" ni "total": el estado inicial siempre es CREADO y el total lo calcula
+ * el backend con los precios del catálogo. Cualquier campo que no esté declarado acá
+ * se rechaza con HTTP 400 (protección contra mass assignment).
+ */
 public class PedidoCreacionRequest {
 
     private String clienteNombre;
@@ -10,10 +19,8 @@ public class PedidoCreacionRequest {
     private Long depositoId;
     private List<ItemPedidoRequest> items = new ArrayList<>();
 
-    // Legacy fields remain accepted for existing clients.
+    // Se acepta solo para clientes legacy que envían "SKU:<codigo>" en la descripción.
     private String descripcion;
-    private String estado;
-    private Double total;
 
     public String getClienteNombre() {
         return clienteNombre;
@@ -55,23 +62,12 @@ public class PedidoCreacionRequest {
         this.descripcion = descripcion;
     }
 
-    public String getEstado() {
-        return estado;
-    }
-
-    public void setEstado(String estado) {
-        this.estado = estado;
-    }
-
-    public Double getTotal() {
-        return total;
-    }
-
-    public void setTotal(Double total) {
-        this.total = total;
-    }
-
     public boolean tieneItemsDeCatalogo() {
         return items != null && !items.isEmpty();
+    }
+
+    @JsonAnySetter
+    void rechazarCampoNoPermitido(String campo, Object valor) {
+        throw new IllegalArgumentException("El campo '" + campo + "' no se puede enviar al crear un pedido.");
     }
 }

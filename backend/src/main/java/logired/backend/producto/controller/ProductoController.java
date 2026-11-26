@@ -40,36 +40,24 @@ public class ProductoController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
-    public ResponseEntity<?> crear(@RequestBody ProductoCatalogoRequest request) {
-        try {
-            return ResponseEntity.status(HttpStatus.CREATED).body(productoService.crear(request));
-        } catch (IllegalArgumentException exception) {
-            return ResponseEntity.badRequest().body(java.util.Map.of("error", exception.getMessage()));
-        }
+    public ResponseEntity<ProductoResponse> crear(@RequestBody ProductoCatalogoRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(productoService.crear(request));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
-    public ResponseEntity<?> actualizar(@PathVariable Long id, @RequestBody ProductoCatalogoRequest request) {
-        try {
-            return productoService.actualizar(id, request)
-                    .<ResponseEntity<?>>map(ResponseEntity::ok)
-                    .orElse(ResponseEntity.notFound().build());
-        } catch (IllegalArgumentException exception) {
-            return ResponseEntity.badRequest().body(java.util.Map.of("error", exception.getMessage()));
-        }
+    public ResponseEntity<ProductoResponse> actualizar(@PathVariable Long id, @RequestBody ProductoCatalogoRequest request) {
+        return productoService.actualizar(id, request)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN') and authentication.name == 'admin'")
-    public ResponseEntity<?> eliminar(@PathVariable Long id) {
-        try {
-            return productoService.eliminar(id)
-                    ? ResponseEntity.noContent().build()
-                    : ResponseEntity.notFound().build();
-        } catch (IllegalStateException exception) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(java.util.Map.of("error", exception.getMessage()));
-        }
+    public ResponseEntity<Void> eliminar(@PathVariable Long id) {
+        // Stock reservado: el servicio lanza ConflictoException y se responde 409.
+        return productoService.eliminar(id)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
     }
 }

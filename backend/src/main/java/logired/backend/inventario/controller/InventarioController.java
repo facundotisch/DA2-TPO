@@ -47,36 +47,25 @@ public class InventarioController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
-    public ResponseEntity<?> crear(@RequestBody ProductoStockRequest request) {
-        try {
-            return ResponseEntity.status(201).body(catalogoService.crear(request));
-        } catch (IllegalArgumentException exception) {
-            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
-        }
+    public ResponseEntity<ItemInventario> crear(@RequestBody ProductoStockRequest request) {
+        return ResponseEntity.status(201).body(catalogoService.crear(request));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
-    public ResponseEntity<?> actualizar(@PathVariable Long id, @RequestBody ProductoStockRequest request) {
-        try {
-            return catalogoService.actualizar(id, request)
-                    .<ResponseEntity<?>>map(ResponseEntity::ok)
-                    .orElse(ResponseEntity.notFound().build());
-        } catch (IllegalArgumentException exception) {
-            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
-        }
+    public ResponseEntity<ItemInventario> actualizar(@PathVariable Long id, @RequestBody ProductoStockRequest request) {
+        return catalogoService.actualizar(id, request)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN') and authentication.name == 'admin'")
-    public ResponseEntity<?> eliminar(@PathVariable Long id) {
-        try {
-            return catalogoService.eliminar(id)
-                    ? ResponseEntity.noContent().build()
-                    : ResponseEntity.notFound().build();
-        } catch (IllegalStateException exception) {
-            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
-        }
+    public ResponseEntity<Void> eliminar(@PathVariable Long id) {
+        // Stock reservado: el servicio lanza ConflictoException y se responde 409.
+        return catalogoService.eliminar(id)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
     }
 
     @PostMapping("/reservar")

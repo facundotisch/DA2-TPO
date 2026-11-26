@@ -1,5 +1,14 @@
 # Estado del backend LogiRed
 
+## Levantar el sistema completo (un solo comando)
+
+```bash
+cp .env.example .env      # completar las contraseñas (el archivo .env no se versiona)
+docker compose up --build
+```
+
+Levanta PostgreSQL, ActiveMQ (consola en http://localhost:8161), el mock del sistema de ruteo (WireMock) y la app en http://localhost:8080. Los usuarios `admin` y `operador` se crean con las contraseñas de `LOGIRED_ADMIN_PASSWORD` y `LOGIRED_OPERADOR_PASSWORD`. No hay contraseñas en el repositorio.
+
 ## Implementado
 
 - Build reproducible desde la raíz con `./build.sh` (requiere JDK 17 y Docker activo o PostgreSQL local más sus herramientas cliente); crea una base temporal aislada, ejecuta `clean verify` con Maven Wrapper fijado y limpia el recurso al terminar. El mismo comando se ejecuta en CI.
@@ -8,7 +17,7 @@
 - API REST de inventario bajo `/api/inventario`: consulta, alta, edicion y baja de productos/stock, ademas de reserva y liberacion. El hold se mantiene en la sesion HTTP y vence con el timeout de cinco minutos.
 - API REST de ruteo bajo `POST /api/ruteo/optimizar`, con seleccion de Strategy por `DISTANCIA_CORTA` o `TIEMPO_RAPIDO`.
 - Registro/login bajo `/api/auth/register` y `/api/auth/login`. El registro publico asigna siempre rol `OPERADOR`; no permite elegir `ADMIN`.
-- Usuarios iniciales de desarrollo: `admin/admin123` y `operador/operador123`. Cambiar estas credenciales antes de cualquier despliegue compartido o real.
+- Usuarios iniciales `admin` y `operador`: se crean solo si están definidas `LOGIRED_ADMIN_PASSWORD` y `LOGIRED_OPERADOR_PASSWORD`. Las contraseñas de usuarios nuevos deben tener entre 8 y 72 caracteres.
 - Deposito central de demostracion persistido en PostgreSQL, asociado automaticamente a pedidos sin deposito.
 - `GET /api/deposito/default` devuelve nombre, direccion, latitud, longitud y `openStreetMapUrl`; las respuestas de pedidos incluyen el objeto `deposito`.
 - Ubicacion demo: Av. 9 de Julio s/n, junto al Obelisco, CABA (`-34.6037`, `-58.3816`). Se puede cambiar antes del primer arranque con `LOGIRED_DEPOSITO_DEFAULT_NOMBRE`, `LOGIRED_DEPOSITO_DEFAULT_DIRECCION`, `LOGIRED_DEPOSITO_DEFAULT_LATITUD` y `LOGIRED_DEPOSITO_DEFAULT_LONGITUD`, que Spring mapea a las propiedades `logired.deposito.default.*`.
@@ -34,20 +43,21 @@ Esta seccion es el contrato vigente que debe seguir el cliente React. Las rutas 
 - Registro: `POST /api/auth/register`, mismo formato de cuerpo. En exito responde HTTP 201 con `username` y `rol`; el registro publico siempre crea un usuario `OPERADOR` y nunca permite elegir `ADMIN`.
 - Para toda solicitud protegida, el frontend debe enviar `Authorization: Basic <base64(username:password)>`. No inventar un token ni usar el usuario guardado en la interfaz como prueba de autenticacion: el backend valida las credenciales en cada solicitud protegida.
 - El frontend puede guardar las credenciales durante la sesion del navegador y eliminarlas al cerrar sesion. Base64 no cifra la contrasena; usar HTTPS fuera del entorno local y nunca guardar credenciales en el codigo fuente.
-- Credenciales de desarrollo sembradas: `operador/operador123` y `admin/admin123`. No usar estas claves en un despliegue real.
-- Se permiten hasta cinco fallos de login por IP cada 60 segundos; al alcanzar el límite se responde HTTP 429 con `Retry-After`. Un login exitoso limpia el contador de esa IP. El contador es local a la instancia.
+- Usuarios sembrados: `operador` y `admin`, con las contraseñas definidas en `.env`.
+- Se permiten hasta cinco fallos de autenticación por IP cada 60 segundos, sumando los de `/api/auth/login` y los de Basic Auth en cualquier endpoint; al alcanzar el límite se responde HTTP 429 con `Retry-After`. El contador es local a la instancia.
 - Si login responde HTTP 401, mostrar que las credenciales son invalidas y no guardar una sesion local.
 
 Las solicitudes protegidas deben manejar los codigos HTTP en lugar de asumir que toda respuesta es exitosa:
 
 | HTTP | Significado para el frontend | Accion |
 | --- | --- | --- |
-| `400` | Datos invalidos, stock insuficiente u otra regla de negocio; normalmente el backend envia `{"error":"..."}` o `{"mensaje":"..."}`. | Mostrar el texto recibido; no mostrar confirmacion de exito. |
+| `400` | Datos invalidos o campos no permitidos en el cuerpo. Los errores llegan en formato Problem Details (RFC 9457) con `title`, `status`, `detail` y, por compatibilidad, `error` con el mismo texto que `detail`. | Mostrar `detail` (o `error`); no mostrar confirmacion de exito. |
 | `401` | Falta autenticacion o las credenciales son invalidas/expiraron. | Pedir iniciar sesion de nuevo. |
 | `429` | Se alcanzó el límite de intentos de login desde esa IP. | Esperar el tiempo indicado en `Retry-After` antes de volver a intentar. |
 | `403` | El usuario esta autenticado pero su rol/cuenta no tiene permiso. | Mostrar acceso denegado; no reintentar con permisos locales. |
 | `404` | El producto, pedido o fila de inventario no existe. | Informar que el registro ya no esta disponible y refrescar la lista. |
-| `409` | Un producto no se puede borrar porque tiene unidades reservadas en pedidos activos. | Explicar que primero debe resolverse el pedido que reserva el stock. |
+| `409` | Conflicto con el estado actual: stock insuficiente, producto con unidades reservadas, transicion de estado invalida, edicion de un pedido que ya no esta en CREADO o Idempotency-Key repetida con otro cuerpo. | Mostrar `detail` y refrescar los datos. |
+| `412` | Se envio `If-Match` con un ETag viejo: otro usuario modifico el pedido. | Volver a consultar el pedido y reintentar. |
 
 Las respuestas exitosas de borrado son HTTP 204 y no tienen cuerpo. El cliente no debe intentar parsear JSON en ese caso.
 
@@ -147,7 +157,7 @@ Antes de crear/editar, cargar las opciones con `GET /api/productos` y permitir s
 }
 ```
 
-Debe haber al menos una linea. `depositoId` es opcional: omitirlo para que el backend asigne cada linea a un deposito con stock suficiente; enviarlo solo si todas las lineas deben salir de ese deposito. No enviar precio, subtotal ni total como datos autoritativos: el backend obtiene el precio vigente, calcula importes y reserva stock. Si falta stock o el producto no existe, la solicitud falla con HTTP 400 y un mensaje de error.
+Debe haber al menos una linea. No enviar `estado`, `total`, `id` ni otros campos: el backend los rechaza con HTTP 400. El estado solo cambia con `PATCH /api/pedido/{id}/estado?accion=ASIGNAR|EN_RUTA|ENTREGAR|FALLAR`, y solo se puede editar un pedido en estado `CREADO`. `depositoId` es opcional: omitirlo para que el backend asigne cada linea a un deposito con stock suficiente; enviarlo solo si todas las lineas deben salir de ese deposito. No enviar precio, subtotal ni total como datos autoritativos: el backend obtiene el precio vigente, calcula importes y reserva stock. Si el producto no existe la solicitud falla con HTTP 400; si falta stock, con HTTP 409.
 
 Para editar, enviar el conjunto completo de lineas que debe quedar en el pedido, no solo las lineas modificadas. El `GET /api/productos` ya refleja el stock disponible despues de las reservas. Por eso, al validar una edicion en el navegador, sumar temporalmente al disponible las cantidades que ese mismo pedido ya tiene reservadas; tambien conservar sus productos en el selector aunque no aparezcan en el listado por tener cero stock libre. El backend vuelve a validar el stock y actualiza/libera las reservas al guardar.
 
@@ -209,11 +219,14 @@ Adapter sigue pendiente hasta implementar una integracion real con uno de los tr
 
 - Integración SOAP publicada en `GET /ws/legacy-ruteo.wsdl` y `POST /ws/legacy-ruteo`, con SOAP Fault y rechazo de DTD/entidades externas.
 - Integración REST modernizada publicada en `POST /api/integraciones/rest/ruteo`; la URL destino se configura con `logired.integraciones.rest.ruteo-url`.
-- La integración REST tiene un timeout configurable de 5 segundos (`logired.integraciones.rest.timeout-millis=5000`) y devuelve el ruteo local como fallback si vence, falla o no responde.
+- La integración REST tiene un timeout de conexión y lectura de 5 segundos (`logired.integraciones.rest.timeout-millis=5000`) aplicado en el propio cliente HTTP, y devuelve el ruteo local como fallback si vence, falla o no responde. En docker compose apunta al mock `ruteo-mock` (`/ruteo/optimizar`, `/ruteo/lento` para probar el timeout, `/ruteo/error`).
 - Los mensajes JMS se persisten en el broker y se reintentan antes de pasar a DLQ; los consumidores registran `eventoId + consumerName` en PostgreSQL para evitar reprocesamiento.
-- Las operaciones mutantes de pedidos aceptan `Idempotency-Key`; si se repite la misma clave con el mismo cuerpo devuelve la respuesta original y con otro cuerpo devuelve HTTP 409.
-- Las respuestas GET de pedidos incluyen `ETag`; el cliente puede enviar `If-None-Match` y recibe HTTP 304 cuando el recurso no cambió.
-- Flujos JMS asíncronos implementados en tópico `logired.envios.creados` y cola `logired.pedidos.creados`; ambos se publican al crear pedidos.
+- Las operaciones mutantes de pedidos aceptan `Idempotency-Key`; si se repite la misma clave con el mismo cuerpo devuelve la respuesta original (cabecera `Idempotency-Replayed: true`), con otro cuerpo devuelve HTTP 409, y una solicitud simultánea con la misma clave devuelve HTTP 409 sin crear un segundo pedido. La clave queda asociada al usuario, al método y a la ruta.
+- Las respuestas de pedidos incluyen `ETag`; con `If-None-Match` se recibe HTTP 304 si no cambió, y con `If-Match` en `PUT`/`PATCH` se recibe HTTP 412 si otro usuario lo modificó.
+- Los eventos `PEDIDO_CREADO` se guardan primero en la tabla `outbox_eventos` (misma transacción que el pedido) y se publican en el broker cada 2 s; si ActiveMQ está caído quedan pendientes y se publican al volver. Se publican en el Virtual Topic `VirtualTopic.logired.envios.creados`: cada suscriptor lee su propia cola persistente `Consumer.<nombre>.VirtualTopic.logired.envios.creados`. Tras 3 reintentos fallidos el mensaje va a `ActiveMQ.DLQ`, que se inspecciona y reprocesa desde la consola web. El evento no incluye nombre ni dirección del cliente.
+- `GET /api/mensajeria/eventos` requiere rol `ADMIN`.
+- `POST /api/ia/generar` responde siempre 200 con `{"respuesta","fuente","degradada"}`; si el proveedor de IA no está configurado, falla o tarda más de 5 s, `degradada` es `true` y se devuelve un mensaje de respaldo.
+- El generador automático de pedidos de demostración solo se activa con `SPRING_PROFILES_ACTIVE=demo`.
 - Implementar transacciones declarativas en un flujo critico que cruce varios componentes.
 - Completar los otros componentes del catalogo (Comercios, Repartidores, PagosYCobranzas, Notificaciones e IntegracionTransportistas).
 - Mejorar el ruteo para trabajar con coordenadas/calles reales y un proveedor de rutas si se requiere navegacion precisa.

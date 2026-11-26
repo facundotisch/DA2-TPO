@@ -1,15 +1,13 @@
 package logired.backend.integraciones;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import logired.backend.ruteo.dto.RutaRequest;
-
-import java.util.Map;
+import logired.backend.ruteo.dto.RutaResponse;
 
 @RestController
 @RequestMapping("/api/integraciones/rest")
@@ -21,16 +19,13 @@ public class IntegracionRestController {
         this.restClient = restClient;
     }
 
+    /**
+     * Siempre responde 200 con una ruta: la del sistema moderno o, si no respondió, la local
+     * (el campo "mensaje" empieza con "Fallback local:" e indica el motivo).
+     * Datos inválidos: 400 en formato Problem Details.
+     */
     @PostMapping("/ruteo")
-    public ResponseEntity<?> calcularRuta(@RequestBody RutaRequest request) {
-        try {
-            return ResponseEntity.ok(restClient.calcularRuta(request));
-        } catch (IllegalArgumentException exception) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", exception.getMessage()));
-        } catch (IllegalStateException exception) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", exception.getMessage()));
-        }
+    public ResponseEntity<RutaResponse> calcularRuta(@RequestBody RutaRequest request) {
+        return ResponseEntity.ok(restClient.calcularRuta(request));
     }
 }

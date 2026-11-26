@@ -1,5 +1,6 @@
 package logired.backend.pedido.entity;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -11,6 +12,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.PostLoad;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import jakarta.persistence.Version;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -37,6 +39,12 @@ public class Pedido {
 
     private Double total;
 
+    // Control de concurrencia optimista: dos actualizaciones simultáneas del mismo pedido
+    // no se pisan; la segunda recibe HTTP 409. El default 0 cubre filas ya existentes.
+    @Version
+    @Column(nullable = false, columnDefinition = "bigint default 0 not null")
+    private Long version;
+
     private String clienteNombre;
 
     private String direccionEntrega;
@@ -55,15 +63,40 @@ public class Pedido {
         this.setEstadoInstancia(new EstadoCreado());
     }
 
+    /**
+     * Reconstruye un pedido con un estado conocido (datos históricos y tests).
+     * Rechaza nombres de estado inexistentes para que nunca se persista un estado inválido.
+     */
     public Pedido(String descripcion, String estado, Double total) {
         this.descripcion = descripcion;
         this.total = total;
-        this.setEstado(estado);
+        restaurarEstado(estado);
     }
 
     @PostLoad
     private void reconstruirEstadoDesdeBD() {
         sincronizarInstanciaDesdeTexto(this.estado);
+    }
+
+    private static EstadoPedido estadoDesdeTexto(String estadoTexto) {
+        if (estadoTexto == null) {
+            return new EstadoCreado();
+        }
+        switch (estadoTexto.toUpperCase()) {
+            case "CREADO":
+                return new EstadoCreado();
+            case "ASIGNADO":
+                return new EstadoAsignado();
+            case "EN_RUTA":
+            case "ENRUTA":
+                return new EstadoEnRuta();
+            case "ENTREGADO":
+                return new EstadoEntregado();
+            case "FALLIDO":
+                return new EstadoFallido();
+            default:
+                throw new IllegalArgumentException("Estado de pedido desconocido: " + estadoTexto);
+        }
     }
 
     private void sincronizarInstanciaDesdeTexto(String estadoTexto) {
@@ -134,9 +167,12 @@ public class Pedido {
         return estado;
     }
 
-    public void setEstado(String estado) {
-        this.estado = estado;
-        sincronizarInstanciaDesdeTexto(estado);
+    /**
+     * El estado no tiene setter público: solo cambia por las transiciones del patrón State
+     * (avanzarAAsignado, avanzarAEnRuta, avanzarAEntregado, reportarFalla).
+     */
+    private void restaurarEstado(String estadoTexto) {
+        setEstadoInstancia(estadoDesdeTexto(estadoTexto));
     }
 
     public Double getTotal() {

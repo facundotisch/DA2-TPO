@@ -47,6 +47,12 @@ public class IdempotencyRecord {
         this.createdAt = LocalDateTime.now();
     }
 
+    void completar(int responseStatus, String responseBody, String responseEtag) {
+        this.responseStatus = responseStatus;
+        this.responseBody = responseBody;
+        this.responseEtag = responseEtag;
+    }
+
     public String getIdempotencyKey() {
         return idempotencyKey;
     }

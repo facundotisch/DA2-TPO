@@ -1,23 +1,32 @@
 package logired.backend.mensajeria;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.time.LocalDateTime;
 
+/**
+ * Evento publicado al crear un pedido.
+ *
+ * No incluye la descripción del pedido: esa descripción contiene el nombre del cliente y la
+ * dirección de entrega (datos personales, Ley 25.326) y los consumidores no la necesitan.
+ * Los consumidores que precisen más datos los consultan por pedidoId con autenticación.
+ * Se ignoran campos desconocidos para poder leer mensajes viejos que aún estén en cola.
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class PedidoCreadoEvent {
     private String eventoId;
     private String tipoEvento;
     private Long pedidoId;
-    private String descripcion;
     private Double total;
     private String estado;
     private String timestamp;
 
     public PedidoCreadoEvent() {}
 
-    public PedidoCreadoEvent(String eventoId, String tipoEvento, Long pedidoId, String descripcion, Double total, String estado) {
+    public PedidoCreadoEvent(String eventoId, String tipoEvento, Long pedidoId, Double total, String estado) {
         this.eventoId = eventoId;
         this.tipoEvento = tipoEvento;
         this.pedidoId = pedidoId;
-        this.descripcion = descripcion;
         this.total = total;
         this.estado = estado;
         this.timestamp = LocalDateTime.now().toString();
@@ -30,8 +39,6 @@ public class PedidoCreadoEvent {
     public void setTipoEvento(String tipoEvento) { this.tipoEvento = tipoEvento; }
     public Long getPedidoId() { return pedidoId; }
     public void setPedidoId(Long pedidoId) { this.pedidoId = pedidoId; }
-    public String getDescripcion() { return descripcion; }
-    public void setDescripcion(String descripcion) { this.descripcion = descripcion; }
     public Double getTotal() { return total; }
     public void setTotal(Double total) { this.total = total; }
     public String getEstado() { return estado; }

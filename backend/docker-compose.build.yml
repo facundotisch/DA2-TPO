@@ -4,7 +4,8 @@ services:
     environment:
       POSTGRES_DB: logired
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 12345
+      # build.sh genera una contraseña aleatoria para cada corrida.
+      POSTGRES_PASSWORD: ${BUILD_DB_PASSWORD:?build.sh define BUILD_DB_PASSWORD}
     ports:
       - "127.0.0.1:5433:5432"
     healthcheck:

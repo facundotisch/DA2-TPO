@@ -1,7 +1,5 @@
 package logired.backend.pedido.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.jms.TextMessage;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,26 +10,24 @@ import logired.backend.deposito.entity.Deposito;
 import logired.backend.deposito.repository.DepositoRepository;
 import logired.backend.inventario.entity.ItemInventario;
 import logired.backend.inventario.repository.InventarioRepository;
-import logired.backend.mensajeria.PedidoCreadoEvent;
+import logired.backend.common.exception.RecursoNoEncontradoException;
+import logired.backend.common.exception.StockInsuficienteException;
+import logired.backend.mensajeria.OutboxService;
 import logired.backend.pedido.dto.ItemPedidoRequest;
+import logired.backend.pedido.dto.PedidoActualizacionRequest;
 import logired.backend.pedido.dto.PedidoCreacionRequest;
 import logired.backend.pedido.entity.Pedido;
 import logired.backend.pedido.entity.PedidoItem;
+import logired.backend.pedido.exception.TransicionInvalidaException;
 import logired.backend.pedido.repository.PedidoRepository;
 import logired.backend.producto.entity.Producto;
 import logired.backend.producto.repository.ProductoRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jms.core.JmsTemplate;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.ThreadLocalRandom;
@@ -39,37 +35,28 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class PedidoService {
 
-    private static final Logger log = LoggerFactory.getLogger(PedidoService.class);
     private static final Pattern SKU_PATTERN = Pattern.compile("SKU:([A-Za-z0-9-]+)");
 
     private final PedidoRepository pedidoRepository;
     private final DepositoRepository depositoRepository;
     private final InventarioRepository inventarioRepository;
     private final ProductoRepository productoRepository;
-    private final JmsTemplate jmsTemplate;
-    private final JmsTemplate queueJmsTemplate;
-    private final ObjectMapper objectMapper;
+    private final OutboxService outboxService;
 
-    @Value("${logired.jms.topic.envios-creados:logired.envios.creados}")
-    private String topicEnviosCreados;
-
-    @Value("${logired.jms.queue.pedidos-creados:logired.pedidos.creados}")
-    private String queuePedidosCreados;
-
+    /**
+     * outboxService puede ser null en tests unitarios que construyen el servicio a mano:
+     * en ese caso el pedido se guarda sin registrar el evento.
+     */
     public PedidoService(PedidoRepository pedidoRepository,
                          DepositoRepository depositoRepository,
                          InventarioRepository inventarioRepository,
                          ProductoRepository productoRepository,
-                         @Autowired(required = false) JmsTemplate jmsTemplate,
-                         @Autowired(required = false) @Qualifier("queueJmsTemplate") JmsTemplate queueJmsTemplate,
-                         @Autowired(required = false) ObjectMapper objectMapper) {
+                         OutboxService outboxService) {
         this.pedidoRepository = pedidoRepository;
         this.depositoRepository = depositoRepository;
         this.inventarioRepository = inventarioRepository;
         this.productoRepository = productoRepository;
-        this.jmsTemplate = jmsTemplate;
-        this.queueJmsTemplate = queueJmsTemplate;
-        this.objectMapper = objectMapper;
+        this.outboxService = outboxService;
     }
 
     @Transactional(readOnly = true)
@@ -118,8 +105,7 @@ public class PedidoService {
         }
 
         List<ItemReservado> reservas = seleccionarReservas(request, depositoSolicitado);
-        Pedido pedido = new Pedido();
-        pedido.setEstado("CREADO");
+        Pedido pedido = new Pedido(); // nace en CREADO por el patrón State
         pedido.setClienteNombre(request.getClienteNombre());
         pedido.setDireccionEntrega(request.getDireccionEntrega());
         pedido.setDeposito(reservas.get(0).deposito());
@@ -129,7 +115,11 @@ public class PedidoService {
         pedido.setTotal(reservarItemsEnPedido(pedido, reservas).doubleValue());
 
         Pedido pedidoGuardado = pedidoRepository.save(pedido);
-        publicarEventoPedidoCreado(pedidoGuardado);
+        // El evento se guarda en la tabla outbox dentro de esta misma transacción:
+        // si el pedido hace rollback, el evento también; si el broker está caído, queda pendiente.
+        if (outboxService != null) {
+            outboxService.registrarPedidoCreado(pedidoGuardado);
+        }
         return pedidoGuardado;
     }
 
@@ -195,8 +185,11 @@ public class PedidoService {
         for (Map.Entry<Long, Integer> linea : cantidadesPorProducto.entrySet().stream()
             .sorted(Map.Entry.comparingByKey()).toList()) {
             Producto producto = productos.get(linea.getKey());
+            // Se bloquean (SELECT ... FOR UPDATE) todas las filas del SKU en la PRIMERA lectura.
+            // Antes se leían sin lock y Hibernate devolvía esas instancias ya cargadas en las
+            // lecturas con lock posteriores, así que el chequeo de stock usaba datos viejos.
             List<ItemInventario> opcionesStock = depositoSolicitado == null
-                    ? inventarioRepository.findBySku(producto.getSku()).stream()
+                    ? inventarioRepository.findAllForUpdateBySku(producto.getSku()).stream()
                             .filter(item -> item.getDeposito() != null)
                             .sorted((first, second) -> Integer.compare(
                                     valorStock(second.getStockDisponible()), valorStock(first.getStockDisponible())))
@@ -217,7 +210,7 @@ public class PedidoService {
             }
 
             if (seleccionado == null) {
-                throw new IllegalStateException("No hay stock suficiente de " + producto.getNombre()
+                throw new StockInsuficienteException("No hay stock suficiente de " + producto.getNombre()
                         + " en un depósito habilitado para preparar el pedido.");
             }
             reservaSeleccionada.add(seleccionado);
@@ -311,62 +304,32 @@ public class PedidoService {
                 });
     }
 
-    private void publicarEventoPedidoCreado(Pedido pedido) {
-        if (jmsTemplate == null || objectMapper == null) {
-            return;
-        }
-        try {
-            PedidoCreadoEvent evento = new PedidoCreadoEvent(
-                    "evt-" + UUID.randomUUID().toString().substring(0, 8),
-                    "PEDIDO_CREADO",
-                    pedido.getId(),
-                    pedido.getDescripcion(),
-                    pedido.getTotal(),
-                    pedido.getEstado()
-            );
-
-            String jsonPayload = objectMapper.writeValueAsString(evento);
-
-            jmsTemplate.send(topicEnviosCreados, session -> {
-                TextMessage message = session.createTextMessage(jsonPayload);
-                message.setStringProperty("tipoEvento", "PEDIDO_CREADO");
-                return message;
-            });
-
-            if (queueJmsTemplate != null) {
-                queueJmsTemplate.send(queuePedidosCreados, session -> {
-                    TextMessage message = session.createTextMessage(jsonPayload);
-                    message.setStringProperty("tipoEvento", "PEDIDO_CREADO");
-                    return message;
-                });
-            }
-
-            log.info("🚀 [PRODUCTOR JMS] Evento publicado en tópico '{}': Pedido #{}", topicEnviosCreados, pedido.getId());
-        } catch (Exception e) {
-            log.error("⚠️ Error al publicar evento en el broker JMS para el pedido #{}: {}", pedido.getId(), e.getMessage());
-        }
-    }
-
-    public Optional<Pedido> actualizar(Long id, Pedido datos) {
-        return pedidoRepository.findById(id).map(pedido -> {
-            pedido.setDescripcion(datos.getDescripcion());
-            pedido.setEstado(datos.getEstado());
-            pedido.setClienteNombre(datos.getClienteNombre());
-            pedido.setDireccionEntrega(datos.getDireccionEntrega());
-            if (pedido.getItems() == null || pedido.getItems().isEmpty()) {
-                pedido.setTotal(datos.getTotal());
-            }
-            return pedidoRepository.save(pedido);
-        });
-    }
-
     @Transactional
-    public Optional<Pedido> actualizarDesdeCatalogo(Long id, PedidoCreacionRequest request) {
+    public Optional<Pedido> actualizarDesdeCatalogo(Long id, PedidoActualizacionRequest request) {
+        return actualizarDesdeCatalogo(id, request, pedido -> { });
+    }
+
+    /**
+     * Actualiza datos de entrega y líneas de un pedido.
+     *
+     * @param precondicion se evalúa con el pedido actual dentro de la transacción, antes de
+     *                     modificar nada (la usa el controlador para validar If-Match).
+     * @throws TransicionInvalidaException si el pedido ya no está en CREADO: un pedido asignado,
+     *                                     en ruta o cerrado no puede cambiar sus líneas.
+     */
+    @Transactional
+    public Optional<Pedido> actualizarDesdeCatalogo(Long id, PedidoActualizacionRequest request,
+                                                    Consumer<Pedido> precondicion) {
         if (request == null) {
             throw new IllegalArgumentException("La solicitud del pedido es obligatoria.");
         }
 
         return pedidoRepository.findById(id).map(pedido -> {
+            precondicion.accept(pedido);
+            if (!"CREADO".equals(pedido.getEstado())) {
+                throw new TransicionInvalidaException("Solo se puede editar un pedido en estado CREADO; este está "
+                        + pedido.getEstado() + ".");
+            }
             if (request.getClienteNombre() != null) {
                 pedido.setClienteNombre(request.getClienteNombre());
             }
@@ -376,15 +339,11 @@ public class PedidoService {
             if (request.getDescripcion() != null) {
                 pedido.setDescripcion(request.getDescripcion());
             }
-            if (request.getEstado() != null) {
-                pedido.setEstado(request.getEstado());
-            }
-
             if (request.tieneItemsDeCatalogo()) {
                 liberarReservasDelPedido(pedido);
                 pedido.getItems().clear();
                 Deposito depositoSolicitado = obtenerDepositoSolicitado(request.getDepositoId());
-                List<ItemReservado> reservas = seleccionarReservas(request, depositoSolicitado);
+                List<ItemReservado> reservas = seleccionarReservas(request.comoSolicitudDeReserva(), depositoSolicitado);
                 pedido.setDeposito(reservas.get(0).deposito());
                 if (request.getDescripcion() == null) {
                     pedido.setDescripcion("Pedido de " + valorTexto(pedido.getClienteNombre(), "Cliente")
@@ -437,27 +396,40 @@ public class PedidoService {
     }
 
     @Transactional
-public Pedido cambiarEstado(Long id, String accion) {
-    Pedido pedido = pedidoRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Pedido no encontrado"));
-
-    switch (accion.toUpperCase()) {
-        case "ASIGNAR":
-            pedido.avanzarAAsignado();
-            break;
-        case "EN_RUTA":
-            pedido.avanzarAEnRuta();
-            break;
-        case "ENTREGAR":
-            pedido.avanzarAEntregado();
-            break;
-        case "FALLAR":
-            pedido.reportarFalla();
-            break;
-        default:
-            throw new IllegalArgumentException("Acción no reconocida: " + accion);
+    public Pedido cambiarEstado(Long id, String accion) {
+        return cambiarEstado(id, accion, pedido -> { });
     }
 
-    return pedidoRepository.save(pedido);
-}
+    /**
+     * Aplica una transición del patrón State. Las transiciones inválidas lanzan
+     * TransicionInvalidaException (HTTP 409) y un pedido inexistente da HTTP 404.
+     */
+    @Transactional
+    public Pedido cambiarEstado(Long id, String accion, Consumer<Pedido> precondicion) {
+        if (accion == null || accion.isBlank()) {
+            throw new IllegalArgumentException("La acción es obligatoria.");
+        }
+        Pedido pedido = pedidoRepository.findById(id)
+                .orElseThrow(() -> new RecursoNoEncontradoException("El pedido " + id + " no existe."));
+        precondicion.accept(pedido);
+
+        switch (accion.trim().toUpperCase()) {
+            case "ASIGNAR":
+                pedido.avanzarAAsignado();
+                break;
+            case "EN_RUTA":
+                pedido.avanzarAEnRuta();
+                break;
+            case "ENTREGAR":
+                pedido.avanzarAEntregado();
+                break;
+            case "FALLAR":
+                pedido.reportarFalla();
+                break;
+            default:
+                throw new IllegalArgumentException("Acción no reconocida: " + accion);
+        }
+
+        return pedidoRepository.save(pedido);
+    }
 }

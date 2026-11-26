@@ -1,5 +1,9 @@
 package logired.backend.legado;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.xml.sax.SAXException;
 import jakarta.xml.soap.MessageFactory;
 import jakarta.xml.soap.SOAPConstants;
 import jakarta.xml.soap.SOAPException;
@@ -34,6 +38,8 @@ import jakarta.servlet.http.HttpServletRequest;
 @RequestMapping("/ws")
 public class LegacySoapController {
 
+    private static final Logger log = LoggerFactory.getLogger(LegacySoapController.class);
+
     private final RuteoService ruteoService;
 
     public LegacySoapController(RuteoService ruteoService) {
@@ -56,34 +62,41 @@ public class LegacySoapController {
     public ResponseEntity<byte[]> recibirSolicitud(HttpServletRequest request) throws Exception {
         byte[] xml = request.getInputStream().readAllBytes();
         if (xml.length > 65536) {
-            return crearRespuestaSoap(construirFault("El mensaje SOAP excede el tamaño permitido."));
+            return faultCliente("El mensaje SOAP excede el tamaño permitido.");
         }
 
         String xmlText = new String(xml, StandardCharsets.UTF_8);
         if (containsXxeMarkers(xmlText)) {
-            return crearRespuestaSoap(construirFault("Mensaje SOAP rechazado: entidades o DOCTYPE no están permitidos."));
+            return faultCliente("Mensaje SOAP rechazado: entidades o DOCTYPE no están permitidos.");
         }
 
         try {
             Document document = secureXmlDocument(xml);
             Element requestElement = buscarElemento(document, "CalcularRutaRequest");
             if (requestElement == null) {
-                return crearRespuestaSoap(construirFault("No se encontró CalcularRutaRequest en el SOAP Body."));
+                return faultCliente("No se encontró CalcularRutaRequest en el SOAP Body.");
             }
 
             List<String> direcciones = leerTexto(requestElement, "direccion");
             if (direcciones.isEmpty()) {
-                return crearRespuestaSoap(construirFault("Debe incluir al menos una dirección."));
+                return faultCliente("Debe incluir al menos una dirección.");
             }
 
             String criterio = leerPrimerTexto(requestElement, "criterio");
             RutaResponse response = ruteoService.calcularRutaConEstrategia(
                     new RutaRequest(direcciones, criterio));
-            return crearRespuestaSoap(construirRespuesta(response));
-        } catch (IllegalArgumentException | IllegalStateException exception) {
-            return crearRespuestaSoap(construirFault(exception.getMessage()));
+            return crearRespuestaSoap(construirRespuesta(response), HttpStatus.OK);
+        } catch (IllegalArgumentException exception) {
+            // Fault de negocio: el cliente envió datos que no se pueden procesar.
+            return faultCliente(exception.getMessage());
+        } catch (SAXException exception) {
+            return faultCliente("El mensaje no es XML/SOAP válido.");
         } catch (Exception exception) {
-            return crearRespuestaSoap(construirFault("Solicitud SOAP inválida."));
+            // Fault técnico: falla interna. Se registra el detalle y al cliente no se le filtra.
+            log.error("Error interno procesando solicitud SOAP", exception);
+            return crearRespuestaSoap(construirFault("soap:Server",
+                    "Error interno al procesar la solicitud. Intente nuevamente más tarde."),
+                    HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -150,22 +163,30 @@ public class LegacySoapController {
                 "</lg:CalcularRutaResponse></soap:Body></soap:Envelope>";
     }
 
-    private String construirFault(String mensaje) {
+    /**
+     * SOAP 1.1 exige HTTP 500 para cualquier Fault. El faultcode distingue el origen:
+     * soap:Client (error de datos del que llama) o soap:Server (falla interna).
+     */
+    private ResponseEntity<byte[]> faultCliente(String mensaje) throws Exception {
+        return crearRespuestaSoap(construirFault("soap:Client", mensaje), HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    private String construirFault(String faultCode, String mensaje) {
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
                 "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">" +
-                "<soap:Body><soap:Fault><faultcode>soap:Client</faultcode>" +
+                "<soap:Body><soap:Fault><faultcode>" + faultCode + "</faultcode>" +
                 "<faultstring>" + escapeXml(mensaje) + "</faultstring></soap:Fault>" +
                 "</soap:Body></soap:Envelope>";
     }
 
-    private ResponseEntity<byte[]> crearRespuestaSoap(String xml) throws Exception {
+    private ResponseEntity<byte[]> crearRespuestaSoap(String xml, HttpStatus status) throws Exception {
         SOAPMessage message = MessageFactory.newInstance(SOAPConstants.SOAP_1_1_PROTOCOL)
                 .createMessage(null, new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         message.writeTo(output);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("text/xml"));
-        return ResponseEntity.ok().headers(headers).body(output.toByteArray());
+        return ResponseEntity.status(status).headers(headers).body(output.toByteArray());
     }
 
     private String escapeXml(String value) {

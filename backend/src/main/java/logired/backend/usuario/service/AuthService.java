@@ -13,6 +13,9 @@ import logired.backend.usuario.repository.UsuarioRepository;
 @Service
 public class AuthService implements UserDetailsService {
 
+    static final int LONGITUD_MINIMA_PASSWORD = 8;
+    static final int LONGITUD_MAXIMA_PASSWORD = 72;
+
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -26,6 +29,12 @@ public class AuthService implements UserDetailsService {
 
         if (usernameNormalizado.isEmpty() || password.isBlank()) {
             throw new IllegalArgumentException("Username y password son obligatorios");
+        }
+
+        // BCrypt solo usa los primeros 72 bytes: más largo da una falsa sensación de seguridad.
+        if (password.length() < LONGITUD_MINIMA_PASSWORD || password.length() > LONGITUD_MAXIMA_PASSWORD) {
+            throw new IllegalArgumentException("La contraseña debe tener entre "
+                    + LONGITUD_MINIMA_PASSWORD + " y " + LONGITUD_MAXIMA_PASSWORD + " caracteres");
         }
 
         if (usuarioRepository.existsByUsername(usernameNormalizado)) {

@@ -5,6 +5,7 @@ import logired.backend.deposito.repository.DepositoRepository;
 import logired.backend.inventario.entity.ItemInventario;
 import logired.backend.inventario.repository.InventarioRepository;
 import logired.backend.pedido.dto.ItemPedidoRequest;
+import logired.backend.pedido.dto.PedidoActualizacionRequest;
 import logired.backend.pedido.dto.PedidoCreacionRequest;
 import logired.backend.pedido.entity.Pedido;
 import logired.backend.pedido.repository.PedidoRepository;
@@ -50,7 +51,7 @@ class PedidoServiceBranchCoverageTests {
     void setUp() {
         service = new PedidoService(
                 pedidoRepository, depositoRepository, inventarioRepository,
-                productoRepository, null, null, null);
+                productoRepository, null);
     }
 
     @Test
@@ -93,7 +94,7 @@ class PedidoServiceBranchCoverageTests {
         PedidoCreacionRequest request = request(1L, 2);
 
         when(productoRepository.findAllById(Set.of(1L))).thenReturn(List.of(producto));
-        when(inventarioRepository.findBySku("SKU-1"))
+        when(inventarioRepository.findAllForUpdateBySku("SKU-1"))
                 .thenReturn(List.of(segundoStock, primerStock));
         when(inventarioRepository.findBySkuAndDeposito("SKU-1", "Munro"))
                 .thenReturn(Optional.empty());
@@ -136,7 +137,7 @@ class PedidoServiceBranchCoverageTests {
         when(productoRepository.findAllById(Set.of(2L))).thenReturn(List.of(producto));
         when(depositoRepository.findById(1L)).thenReturn(Optional.of(central));
         when(inventarioRepository.findAll()).thenReturn(List.of(stock));
-        when(inventarioRepository.findBySku("SKU-2")).thenReturn(List.of(stock));
+        when(inventarioRepository.findAllForUpdateBySku("SKU-2")).thenReturn(List.of(stock));
         when(inventarioRepository.findBySkuAndDeposito("SKU-2", "Munro"))
                 .thenReturn(Optional.of(stock));
         when(depositoRepository.findByNombre("Munro")).thenReturn(Optional.of(munro));
@@ -173,21 +174,73 @@ class PedidoServiceBranchCoverageTests {
         assertThrows(IllegalArgumentException.class,
                 () -> service.actualizarDesdeCatalogo(404L, null));
         when(pedidoRepository.findById(404L)).thenReturn(Optional.empty());
-        assertTrue(service.actualizarDesdeCatalogo(404L, new PedidoCreacionRequest()).isEmpty());
+        assertTrue(service.actualizarDesdeCatalogo(404L, new PedidoActualizacionRequest()).isEmpty());
     }
 
     @Test
-    void actualizarPedidoLegacyConservaTotalCuandoTieneItems() {
-        Pedido existente = new Pedido("Antes", "CREADO", 20.0);
+    void actualizarConLineasReemplazaReservasDelPedidoCreado() {
+        Producto producto = producto("SKU-4", 4L);
+        Deposito central = new Deposito("Central", "Av. Central", -34.6, -58.4);
+        ItemInventario stock = new ItemInventario("SKU-4", "Producto", "Central", 5, 1);
+        Pedido existente = new Pedido("Antes", "CREADO", 10.0);
         existente.agregarItem(new logired.backend.pedido.entity.PedidoItem(
-                producto("SKU-4", 4L), null, 1, new BigDecimal("20.00")));
-        Pedido cambios = new Pedido("Después", "EN_RUTA", 999.0);
+                producto, central, 1, new BigDecimal("10.00")));
+        PedidoActualizacionRequest cambios = new PedidoActualizacionRequest();
+        cambios.setItems(List.of(linea(4L, 3)));
+
         when(pedidoRepository.findById(4L)).thenReturn(Optional.of(existente));
+        when(inventarioRepository.findBySkuAndDeposito("SKU-4", "Central")).thenReturn(Optional.of(stock));
+        when(productoRepository.findAllById(Set.of(4L))).thenReturn(List.of(producto));
+        when(inventarioRepository.findAllForUpdateBySku("SKU-4")).thenReturn(List.of(stock));
+        when(depositoRepository.findByNombre("Central")).thenReturn(Optional.of(central));
+        when(inventarioRepository.save(any(ItemInventario.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(pedidoRepository.save(existente)).thenReturn(existente);
 
-        assertEquals(Optional.of(existente), service.actualizar(4L, cambios));
-        assertEquals(20.0, existente.getTotal());
-        assertEquals("Después", existente.getDescripcion());
+        assertTrue(service.actualizarDesdeCatalogo(4L, cambios).isPresent());
+
+        assertEquals(1, existente.getItems().size());
+        assertEquals(3, existente.getItems().get(0).getCantidad());
+        assertEquals(30.0, existente.getTotal());
+        assertEquals(3, stock.getStockDisponible());
+        assertEquals(3, stock.getStockBloqueado());
+    }
+
+    @Test
+    void precondicionSeEvaluaAntesDeModificarElPedido() {
+        Pedido existente = new Pedido("Antes", "CREADO", 10.0);
+        PedidoActualizacionRequest cambios = new PedidoActualizacionRequest();
+        cambios.setDescripcion("Después");
+        when(pedidoRepository.findById(6L)).thenReturn(Optional.of(existente));
+
+        assertThrows(logired.backend.common.exception.PrecondicionFallidaException.class,
+                () -> service.actualizarDesdeCatalogo(6L, cambios, pedido -> {
+                    throw new logired.backend.common.exception.PrecondicionFallidaException("ETag viejo");
+                }));
+        assertEquals("Antes", existente.getDescripcion());
+    }
+
+    @Test
+    void cambiarEstadoDePedidoInexistenteDevuelveNoEncontrado() {
+        when(pedidoRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThrows(logired.backend.common.exception.RecursoNoEncontradoException.class,
+                () -> service.cambiarEstado(99L, "ASIGNAR"));
+    }
+
+    @Test
+    void stockInsuficienteLanzaExcepcionDeConflicto() {
+        Producto producto = producto("SKU-5", 5L);
+        ItemInventario stock = new ItemInventario("SKU-5", "Producto", "Central", 1, 0);
+        when(productoRepository.findAllById(Set.of(5L))).thenReturn(List.of(producto));
+        when(inventarioRepository.findAllForUpdateBySku("SKU-5")).thenReturn(List.of(stock));
+        when(inventarioRepository.findBySkuAndDeposito("SKU-5", "Central")).thenReturn(Optional.of(stock));
+        when(depositoRepository.findByNombre("Central"))
+                .thenReturn(Optional.of(new Deposito("Central", "Av. Central", -34.6, -58.4)));
+
+        assertThrows(logired.backend.common.exception.StockInsuficienteException.class,
+                () -> service.crearDesdeCatalogo(request(5L, 2)));
+        assertEquals(1, stock.getStockDisponible());
     }
 
     @Test

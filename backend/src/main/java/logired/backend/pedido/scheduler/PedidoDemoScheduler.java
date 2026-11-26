@@ -6,6 +6,7 @@ import java.util.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import logired.backend.deposito.entity.Deposito;
@@ -18,7 +19,13 @@ import logired.backend.pedido.entity.Pedido;
 import logired.backend.pedido.repository.PedidoRepository;
 import logired.backend.pedido.service.PedidoService;
 
+/**
+ * Genera pedidos de ejemplo cada 2 minutos. Solo se activa con el perfil "demo"
+ * (SPRING_PROFILES_ACTIVE=demo): en tests, en la prueba en vivo y en cualquier otro
+ * entorno no crea pedidos que nadie pidió ni vuelve no deterministas los tests.
+ */
 @Component
+@Profile("demo")
 public class PedidoDemoScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(PedidoDemoScheduler.class);

@@ -6,6 +6,7 @@ import jakarta.jms.ConnectionFactory;
 import org.apache.activemq.broker.BrokerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jms.annotation.EnableJms;
@@ -22,8 +23,18 @@ public class JmsConfig {
     private static final Logger log = LoggerFactory.getLogger(JmsConfig.class);
     private BrokerService embeddedBroker;
 
+    /**
+     * Broker embebido solo para desarrollo local. En docker compose se desactiva con
+     * LOGIRED_JMS_BROKER_EMBEBIDO=false y la app usa el contenedor de ActiveMQ, que es el
+     * que se apaga y se vuelve a levantar en la prueba de resiliencia.
+     */
     @Bean
-    public BrokerService brokerService() {
+    public BrokerService brokerService(
+            @Value("${logired.jms.broker-embebido:true}") boolean brokerEmbebido) {
+        if (!brokerEmbebido) {
+            log.info("Broker embebido deshabilitado; se usa el broker externo configurado.");
+            return null;
+        }
         try {
             // Si ya hay un broker escuchando en 61616 (ej: contenedor Docker), no levantamos broker embebido
             try (Socket socket = new Socket("localhost", 61616)) {
@@ -35,8 +46,7 @@ public class JmsConfig {
 
             embeddedBroker = new BrokerService();
             embeddedBroker.setBrokerName("logired-broker");
-            embeddedBroker.setPersistent(true);
-            embeddedBroker.setDataDirectory("target/activemq-data");
+            embeddedBroker.setPersistent(false);
             embeddedBroker.setUseJmx(false);
             embeddedBroker.addConnector("tcp://localhost:61616");
             embeddedBroker.start();

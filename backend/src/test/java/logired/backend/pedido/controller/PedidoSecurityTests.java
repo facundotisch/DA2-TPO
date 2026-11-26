@@ -18,6 +18,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import logired.backend.producto.repository.ProductoRepository;
+import logired.backend.pedido.dto.PedidoActualizacionRequest;
 import logired.backend.pedido.dto.PedidoCreacionRequest;
 import logired.backend.pedido.exception.TransicionInvalidaException;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -173,29 +174,46 @@ class PedidoSecurityTests {
     void operadorPuedeActualizarPedido() throws Exception {
             Pedido pedido = new Pedido("Cambio", "CREADO", 1200.0);
             when(pedidoService.actualizarDesdeCatalogo(
-                    org.mockito.ArgumentMatchers.eq(1L), any(PedidoCreacionRequest.class)))
+                    org.mockito.ArgumentMatchers.eq(1L), any(PedidoActualizacionRequest.class), any()))
                     .thenReturn(Optional.of(pedido));
             mockMvc.perform(put("/api/pedido/1")
                     .with(user("operador").roles("OPERADOR"))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"descripcion\":\"Cambio\",\"estado\":\"CREADO\"}"))
+                    .content("{\"descripcion\":\"Cambio\"}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.descripcion").value("Cambio"));
     }
 
             @Test
             void administradorPuedeActualizarPedidoExistente() throws Exception {
-            Pedido pedido = new Pedido("Entrega local", "EN_RUTA", 1200.0);
+            Pedido pedido = new Pedido("Entrega local", "CREADO", 1200.0);
             when(pedidoService.actualizarDesdeCatalogo(
-                    org.mockito.ArgumentMatchers.eq(7L), any(PedidoCreacionRequest.class)))
+                    org.mockito.ArgumentMatchers.eq(7L), any(PedidoActualizacionRequest.class), any()))
                 .thenReturn(Optional.of(pedido));
 
             mockMvc.perform(put("/api/pedido/7")
                     .with(user("admin").roles("ADMIN"))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"descripcion\":\"Entrega local\",\"estado\":\"EN_RUTA\",\"total\":1200}"))
+                    .content("{\"descripcion\":\"Entrega local\",\"direccionEntrega\":\"Av. Corrientes 123\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.estado").value("EN_RUTA"));
+                .andExpect(jsonPath("$.descripcion").value("Entrega local"));
+            }
+
+            @Test
+            void putConEstadoOTotalEsRechazadoSinTocarElServicio() throws Exception {
+            // SEC-01: mass assignment. El cuerpo no puede traer estado, total ni campos desconocidos.
+            for (String cuerpo : List.of(
+                    "{\"descripcion\":\"x\",\"estado\":\"ENTREGADO\"}",
+                    "{\"descripcion\":\"x\",\"total\":1}",
+                    "{\"descripcion\":\"x\",\"id\":99}")) {
+                mockMvc.perform(put("/api/pedido/7")
+                        .with(user("admin").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cuerpo))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400));
+            }
+            org.mockito.Mockito.verifyNoInteractions(pedidoService);
             }
 
             @Test
@@ -230,13 +248,13 @@ class PedidoSecurityTests {
             @Test
             void actualizarPedidoInexistenteDevuelve404() throws Exception {
             when(pedidoService.actualizarDesdeCatalogo(
-                    org.mockito.ArgumentMatchers.eq(999L), any(PedidoCreacionRequest.class)))
+                    org.mockito.ArgumentMatchers.eq(999L), any(PedidoActualizacionRequest.class), any()))
                 .thenReturn(Optional.empty());
 
             mockMvc.perform(put("/api/pedido/999")
                     .with(user("admin").roles("ADMIN"))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"descripcion\":\"No existe\",\"estado\":\"CREADO\",\"total\":100}"))
+                    .content("{\"descripcion\":\"No existe\"}"))
                 .andExpect(status().isNotFound());
             }
 
@@ -252,10 +270,17 @@ class PedidoSecurityTests {
             @Test
             @WithMockUser(username = "admin", roles = {"ADMIN"})
             void transicionInvalidaDeEstadoDevuelve409Conflict() throws Exception {
+                // Verifica solo el mapeo HTTP de la excepción. La lógica real de transiciones se prueba
+                // sin mocks en PedidoEstadoTransicionesTests y PedidoApiIntegrationTests.
                 org.mockito.Mockito.doThrow(new TransicionInvalidaException("Transición inválida"))
-                        .when(pedidoService).cambiarEstado(1L, "ENTREGAR");
+                        .when(pedidoService).cambiarEstado(
+                                org.mockito.ArgumentMatchers.eq(1L),
+                                org.mockito.ArgumentMatchers.eq("ENTREGAR"),
+                                any());
                 mockMvc.perform(patch("/api/pedido/1/estado")
                         .param("accion", "ENTREGAR"))
-                        .andExpect(status().isConflict());
+                        .andExpect(status().isConflict())
+                        .andExpect(jsonPath("$.title").value("Transición de estado inválida"))
+                        .andExpect(jsonPath("$.detail").value("Transición inválida"));
             }
 }

@@ -1,5 +1,6 @@
 package logired.backend.producto.service;
 
+import logired.backend.common.exception.ConflictoException;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -129,7 +130,7 @@ public class ProductoService {
         List<ItemInventario> existencias =
                 inventarioRepository.findAllForUpdateBySku(producto.get().getSku());
         if (existencias.stream().anyMatch(item -> valor(item.getStockBloqueado()) > 0)) {
-            throw new IllegalStateException(
+            throw new ConflictoException(
                     "No se puede eliminar un producto con unidades reservadas en pedidos activos.");
         }
         inventarioRepository.deleteAll(existencias);

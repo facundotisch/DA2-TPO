@@ -77,4 +77,56 @@ class ModernRuteoRestClientTests {
             server.stop(0);
         }
     }
+
+    @Test
+    void usaLaRespuestaDelSistemaModernoCuandoResponde() throws Exception {
+        RuteoService ruteoService = mock(RuteoService.class);
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/ruteo", exchange -> {
+            byte[] body = ("{\"paradasOrdenadas\":[\"Central\",\"Destino\"],\"distanciaTotalKm\":4.2,"
+                    + "\"tiempoEstimadoMinutos\":15,\"estrategiaAplicada\":\"DISTANCIA_CORTA\","
+                    + "\"mensaje\":\"Ruta del sistema moderno\"}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ModernRuteoRestClient client = new ModernRuteoRestClient(
+                    "http://localhost:" + server.getAddress().getPort() + "/ruteo", ruteoService, 2000);
+
+            RutaResponse response = client.calcularRuta(
+                    new RutaRequest(List.of("Central", "Destino"), "DISTANCIA_CORTA"));
+
+            assertEquals("Ruta del sistema moderno", response.getMensaje());
+            assertEquals(15, response.getTiempoEstimadoMinutos());
+            org.mockito.Mockito.verifyNoInteractions(ruteoService);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void errorDelSistemaModernoUsaFallback() throws Exception {
+        RuteoService ruteoService = mock(RuteoService.class);
+        when(ruteoService.calcularRutaConEstrategia(any(RutaRequest.class)))
+                .thenReturn(new RutaResponse(List.of("Central"), 1.0, 5, "TIEMPO_RAPIDO", "Ruta local"));
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/ruteo", exchange -> {
+            exchange.sendResponseHeaders(503, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ModernRuteoRestClient client = new ModernRuteoRestClient(
+                    "http://localhost:" + server.getAddress().getPort() + "/ruteo", ruteoService, 2000);
+
+            RutaResponse response = client.calcularRuta(new RutaRequest(List.of("Central"), "TIEMPO_RAPIDO"));
+
+            assertTrue(response.getMensaje().startsWith("Fallback local:"));
+        } finally {
+            server.stop(0);
+        }
+    }
 }

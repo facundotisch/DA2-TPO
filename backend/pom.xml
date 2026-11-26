@@ -164,4 +164,46 @@
 		</plugins>
 	</build>
 
+	<profiles>
+		<!--
+			Mutation testing (Eje B, umbral 60% sobre el dominio):
+			  ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+			Solo muta el dominio de pedidos (patrón State) y corre sus tests unitarios,
+			así que no necesita base de datos ni broker.
+		-->
+		<profile>
+			<id>mutation</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.pitest</groupId>
+						<artifactId>pitest-maven</artifactId>
+						<version>1.19.4</version>
+						<dependencies>
+							<dependency>
+								<groupId>org.pitest</groupId>
+								<artifactId>pitest-junit5-plugin</artifactId>
+								<version>1.2.3</version>
+							</dependency>
+						</dependencies>
+						<configuration>
+							<targetClasses>
+								<param>logired.backend.pedido.state.*</param>
+							</targetClasses>
+							<targetTests>
+								<param>logired.backend.pedido.state.*Tests</param>
+							</targetTests>
+							<mutationThreshold>60</mutationThreshold>
+							<outputFormats>
+								<param>HTML</param>
+								<param>XML</param>
+							</outputFormats>
+							<timestampedReports>false</timestampedReports>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
 </project>

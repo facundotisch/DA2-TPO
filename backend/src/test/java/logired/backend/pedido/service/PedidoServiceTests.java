@@ -28,7 +28,10 @@ import logired.backend.inventario.repository.InventarioRepository;
 import logired.backend.pedido.entity.Pedido;
 import logired.backend.pedido.repository.PedidoRepository;
 import logired.backend.pedido.dto.ItemPedidoRequest;
+import logired.backend.pedido.dto.PedidoActualizacionRequest;
 import logired.backend.pedido.dto.PedidoCreacionRequest;
+import logired.backend.pedido.exception.TransicionInvalidaException;
+import logired.backend.mensajeria.OutboxService;
 import logired.backend.producto.entity.Producto;
 import logired.backend.producto.entity.Vendedor;
 import logired.backend.producto.repository.ProductoRepository;
@@ -48,6 +51,9 @@ class PedidoServiceTests {
     @Mock
     private ProductoRepository productoRepository;
 
+    @Mock
+    private OutboxService outboxService;
+
     @InjectMocks
     private PedidoService pedidoService;
 
@@ -58,25 +64,42 @@ class PedidoServiceTests {
     }
 
     @Test
-    void actualizarModificaLosCamposDelPedidoExistente() {
+    void actualizarNoPuedeCambiarElEstadoNiElTotal() {
+        // SEC-01: el PUT ya no acepta "estado" ni "total"; solo datos de entrega y líneas.
         Pedido existente = new Pedido("Antes", "CREADO", 100.0);
-        Pedido datos = new Pedido("Despues", "EN_RUTA", 250.0);
+        PedidoActualizacionRequest cambios = new PedidoActualizacionRequest();
+        cambios.setDescripcion("Despues");
+        cambios.setDireccionEntrega("Av. Siempre Viva 742");
         when(pedidoRepository.findById(3L)).thenReturn(Optional.of(existente));
         when(pedidoRepository.save(existente)).thenReturn(existente);
 
-        Optional<Pedido> resultado = pedidoService.actualizar(3L, datos);
+        Optional<Pedido> resultado = pedidoService.actualizarDesdeCatalogo(3L, cambios);
 
         assertTrue(resultado.isPresent());
         assertEquals("Despues", existente.getDescripcion());
-        assertEquals("EN_RUTA", existente.getEstado());
-        assertEquals(250.0, existente.getTotal());
+        assertEquals("Av. Siempre Viva 742", existente.getDireccionEntrega());
+        assertEquals("CREADO", existente.getEstado());
+        assertEquals(100.0, existente.getTotal());
+    }
+
+    @Test
+    void actualizarPedidoQueYaSalioARutaEsRechazado() {
+        Pedido enRuta = new Pedido("En ruta", "EN_RUTA", 100.0);
+        PedidoActualizacionRequest cambios = new PedidoActualizacionRequest();
+        cambios.setDescripcion("Intento de edición");
+        when(pedidoRepository.findById(8L)).thenReturn(Optional.of(enRuta));
+
+        assertThrows(TransicionInvalidaException.class,
+                () -> pedidoService.actualizarDesdeCatalogo(8L, cambios));
+        assertEquals("En ruta", enRuta.getDescripcion());
+        verify(pedidoRepository, never()).save(any(Pedido.class));
     }
 
     @Test
     void actualizarPedidoInexistenteNoGuardaCambios() {
         when(pedidoRepository.findById(404L)).thenReturn(Optional.empty());
 
-        assertTrue(pedidoService.actualizar(404L, new Pedido("No existe", "CREADO", 10.0)).isEmpty());
+        assertTrue(pedidoService.actualizarDesdeCatalogo(404L, new PedidoActualizacionRequest()).isEmpty());
         verify(pedidoRepository, never()).save(any(Pedido.class));
     }
 
@@ -102,7 +125,7 @@ class PedidoServiceTests {
 
         when(productoRepository.findBySku("SESSION-abc")).thenReturn(Optional.of(producto));
         when(productoRepository.findAllById(Set.of(2L))).thenReturn(List.of(producto));
-        when(inventarioRepository.findBySku("SESSION-abc")).thenReturn(List.of(item));
+        when(inventarioRepository.findAllForUpdateBySku("SESSION-abc")).thenReturn(List.of(item));
         when(inventarioRepository.findBySkuAndDeposito("SESSION-abc", "Deposito por sesion"))
             .thenReturn(Optional.of(item));
         when(depositoRepository.findByNombre("Deposito por sesion"))
@@ -131,7 +154,7 @@ class PedidoServiceTests {
         when(pedidoRepository.buscarPedidosSinItems()).thenReturn(List.of(pedidoExistente));
         when(inventarioRepository.findAll()).thenReturn(List.of(stock));
         when(productoRepository.findAllById(Set.of(5L))).thenReturn(List.of(producto));
-        when(inventarioRepository.findBySku("HIST-001")).thenReturn(List.of(stock));
+        when(inventarioRepository.findAllForUpdateBySku("HIST-001")).thenReturn(List.of(stock));
         when(inventarioRepository.findBySkuAndDeposito("HIST-001", "Central")).thenReturn(Optional.of(stock));
         when(depositoRepository.findByNombre("Central")).thenReturn(Optional.of(deposito));
         when(pedidoRepository.save(pedidoExistente)).thenReturn(pedidoExistente);
@@ -163,7 +186,7 @@ class PedidoServiceTests {
         request.setItems(List.of(linea));
 
         when(productoRepository.findAllById(Set.of(1L))).thenReturn(List.of(producto));
-        when(inventarioRepository.findBySku("IND-001")).thenReturn(List.of(stock));
+        when(inventarioRepository.findAllForUpdateBySku("IND-001")).thenReturn(List.of(stock));
         when(depositoRepository.findByNombre("Barracas")).thenReturn(Optional.of(deposito));
         when(inventarioRepository.findBySkuAndDeposito("IND-001", "Barracas")).thenReturn(Optional.of(stock));
         when(pedidoRepository.save(any(Pedido.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -177,6 +200,7 @@ class PedidoServiceTests {
         assertEquals(6, stock.getStockDisponible());
         assertEquals(2, stock.getStockBloqueado());
         assertSame(deposito, creado.getDeposito());
+        verify(outboxService).registrarPedidoCreado(creado);
     }
 
     @Test
@@ -202,8 +226,8 @@ class PedidoServiceTests {
         request.setItems(List.of(lineaZapatillas, lineaAuriculares));
 
         when(productoRepository.findAllById(Set.of(1L, 2L))).thenReturn(List.of(zapatillas, auriculares));
-        when(inventarioRepository.findBySku("IND-001")).thenReturn(List.of(stockBarracas));
-        when(inventarioRepository.findBySku("ELEC-010")).thenReturn(List.of(stockMunro));
+        when(inventarioRepository.findAllForUpdateBySku("IND-001")).thenReturn(List.of(stockBarracas));
+        when(inventarioRepository.findAllForUpdateBySku("ELEC-010")).thenReturn(List.of(stockMunro));
         when(inventarioRepository.findBySkuAndDeposito("IND-001", "Barracas")).thenReturn(Optional.of(stockBarracas));
         when(inventarioRepository.findBySkuAndDeposito("ELEC-010", "Munro")).thenReturn(Optional.of(stockMunro));
         when(depositoRepository.findByNombre("Barracas")).thenReturn(Optional.of(barracas));

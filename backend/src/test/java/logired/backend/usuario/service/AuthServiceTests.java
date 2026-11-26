@@ -29,4 +29,14 @@ class AuthServiceTests {
 
         verify(usuarioRepository, never()).existsByUsername(anyString());
     }
+
+    @Test
+    void rechazaContrasenasDeMenosDeOchoCaracteres() {
+        AuthService service = new AuthService(usuarioRepository, passwordEncoder);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.registrar("usuario-valido", "1234567"));
+
+        verify(usuarioRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
 }
