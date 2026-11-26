@@ -70,6 +70,8 @@ class PedidoServiceTests {
         PedidoActualizacionRequest cambios = new PedidoActualizacionRequest();
         cambios.setDescripcion("Despues");
         cambios.setDireccionEntrega("Av. Siempre Viva 742");
+        cambios.setLatitudEntrega(-34.61);
+        cambios.setLongitudEntrega(-58.39);
         when(pedidoRepository.findById(3L)).thenReturn(Optional.of(existente));
         when(pedidoRepository.save(existente)).thenReturn(existente);
 
@@ -78,6 +80,8 @@ class PedidoServiceTests {
         assertTrue(resultado.isPresent());
         assertEquals("Despues", existente.getDescripcion());
         assertEquals("Av. Siempre Viva 742", existente.getDireccionEntrega());
+        assertEquals(-34.61, existente.getLatitudEntrega());
+        assertEquals(-58.39, existente.getLongitudEntrega());
         assertEquals("CREADO", existente.getEstado());
         assertEquals(100.0, existente.getTotal());
     }
@@ -183,6 +187,8 @@ class PedidoServiceTests {
         PedidoCreacionRequest request = new PedidoCreacionRequest();
         request.setClienteNombre("Cliente Demo");
         request.setDireccionEntrega("Av. Corrientes 123");
+        request.setLatitudEntrega(-34.6037);
+        request.setLongitudEntrega(-58.3816);
         request.setItems(List.of(linea));
 
         when(productoRepository.findAllById(Set.of(1L))).thenReturn(List.of(producto));
@@ -197,10 +203,29 @@ class PedidoServiceTests {
         assertEquals(1, creado.getItems().size());
         assertEquals(2, creado.getItems().get(0).getCantidad());
         assertEquals(new BigDecimal("125.50"), creado.getItems().get(0).getPrecioUnitario());
+        assertEquals(-34.6037, creado.getLatitudEntrega());
+        assertEquals(-58.3816, creado.getLongitudEntrega());
         assertEquals(6, stock.getStockDisponible());
         assertEquals(2, stock.getStockBloqueado());
         assertSame(deposito, creado.getDeposito());
         verify(outboxService).registrarPedidoCreado(creado);
+    }
+
+    @Test
+    void crearRechazaCoordenadasDeEntregaIncompletas() {
+        PedidoCreacionRequest request = new PedidoCreacionRequest();
+        request.setLatitudEntrega(-34.6);
+
+        assertThrows(IllegalArgumentException.class, () -> pedidoService.crearDesdeCatalogo(request));
+    }
+
+    @Test
+    void crearRechazaCoordenadasDeEntregaFueraDeRango() {
+        PedidoCreacionRequest request = new PedidoCreacionRequest();
+        request.setLatitudEntrega(-91.0);
+        request.setLongitudEntrega(-58.0);
+
+        assertThrows(IllegalArgumentException.class, () -> pedidoService.crearDesdeCatalogo(request));
     }
 
     @Test

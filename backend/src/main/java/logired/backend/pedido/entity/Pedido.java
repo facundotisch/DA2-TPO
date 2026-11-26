@@ -49,6 +49,10 @@ public class Pedido {
 
     private String direccionEntrega;
 
+    private Double latitudEntrega;
+
+    private Double longitudEntrega;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "deposito_id")
     private Deposito deposito;
@@ -205,6 +209,22 @@ public class Pedido {
 
     public void setDireccionEntrega(String direccionEntrega) {
         this.direccionEntrega = direccionEntrega;
+    }
+
+    public Double getLatitudEntrega() {
+        return latitudEntrega;
+    }
+
+    public void setLatitudEntrega(Double latitudEntrega) {
+        this.latitudEntrega = latitudEntrega;
+    }
+
+    public Double getLongitudEntrega() {
+        return longitudEntrega;
+    }
+
+    public void setLongitudEntrega(Double longitudEntrega) {
+        this.longitudEntrega = longitudEntrega;
     }
 
     public List<PedidoItem> getItems() {

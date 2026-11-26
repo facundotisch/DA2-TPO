@@ -16,6 +16,8 @@ public class PedidoActualizacionRequest {
 
     private String clienteNombre;
     private String direccionEntrega;
+    private Double latitudEntrega;
+    private Double longitudEntrega;
     private String descripcion;
     private Long depositoId;
     private List<ItemPedidoRequest> items = new ArrayList<>();
@@ -34,6 +36,22 @@ public class PedidoActualizacionRequest {
 
     public void setDireccionEntrega(String direccionEntrega) {
         this.direccionEntrega = direccionEntrega;
+    }
+
+    public Double getLatitudEntrega() {
+        return latitudEntrega;
+    }
+
+    public void setLatitudEntrega(Double latitudEntrega) {
+        this.latitudEntrega = latitudEntrega;
+    }
+
+    public Double getLongitudEntrega() {
+        return longitudEntrega;
+    }
+
+    public void setLongitudEntrega(Double longitudEntrega) {
+        this.longitudEntrega = longitudEntrega;
     }
 
     public String getDescripcion() {
@@ -69,6 +87,8 @@ public class PedidoActualizacionRequest {
         PedidoCreacionRequest solicitud = new PedidoCreacionRequest();
         solicitud.setClienteNombre(clienteNombre);
         solicitud.setDireccionEntrega(direccionEntrega);
+        solicitud.setLatitudEntrega(latitudEntrega);
+        solicitud.setLongitudEntrega(longitudEntrega);
         solicitud.setDescripcion(descripcion);
         solicitud.setDepositoId(depositoId);
         solicitud.setItems(items);

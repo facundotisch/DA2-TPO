@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import logired.backend.deposito.entity.Deposito;
 import logired.backend.deposito.repository.DepositoRepository;
@@ -74,6 +75,8 @@ public class PedidoService {
         PedidoCreacionRequest request = new PedidoCreacionRequest();
         request.setClienteNombre(pedido.getClienteNombre());
         request.setDireccionEntrega(pedido.getDireccionEntrega());
+        request.setLatitudEntrega(pedido.getLatitudEntrega());
+        request.setLongitudEntrega(pedido.getLongitudEntrega());
         request.setDescripcion(pedido.getDescripcion());
         if (pedido.getDeposito() != null) {
             request.setDepositoId(pedido.getDeposito().getId());
@@ -98,6 +101,7 @@ public class PedidoService {
         if (request == null) {
             throw new IllegalArgumentException("La solicitud del pedido es obligatoria.");
         }
+        validarCoordenadasEntrega(request.getLatitudEntrega(), request.getLongitudEntrega());
 
         Deposito depositoSolicitado = obtenerDepositoSolicitado(request.getDepositoId());
         if (request.getItems() == null || request.getItems().isEmpty()) {
@@ -108,6 +112,8 @@ public class PedidoService {
         Pedido pedido = new Pedido(); // nace en CREADO por el patrón State
         pedido.setClienteNombre(request.getClienteNombre());
         pedido.setDireccionEntrega(request.getDireccionEntrega());
+        pedido.setLatitudEntrega(request.getLatitudEntrega());
+        pedido.setLongitudEntrega(request.getLongitudEntrega());
         pedido.setDeposito(reservas.get(0).deposito());
         pedido.setDescripcion(valorTexto(request.getDescripcion(),
                 "Pedido de " + valorTexto(request.getClienteNombre(), "Cliente")
@@ -273,6 +279,16 @@ public class PedidoService {
         return valor == null || valor.isBlank() ? predeterminado : valor.trim();
     }
 
+    private void validarCoordenadasEntrega(Double latitud, Double longitud) {
+        if ((latitud == null) != (longitud == null)) {
+            throw new IllegalArgumentException("La ubicación de entrega debe incluir latitud y longitud.");
+        }
+        if (latitud != null && (!Double.isFinite(latitud) || latitud < -90 || latitud > 90
+                || !Double.isFinite(longitud) || longitud < -180 || longitud > 180)) {
+            throw new IllegalArgumentException("Las coordenadas de entrega están fuera de rango.");
+        }
+    }
+
     private Optional<ItemInventario> resolverItemInventarioPorSku(String sku, String depositoNombre) {
         return inventarioRepository.findBySkuAndDeposito(sku, depositoNombre)
             .or(() -> inventarioRepository.findAll().stream()
@@ -323,6 +339,7 @@ public class PedidoService {
         if (request == null) {
             throw new IllegalArgumentException("La solicitud del pedido es obligatoria.");
         }
+        validarCoordenadasEntrega(request.getLatitudEntrega(), request.getLongitudEntrega());
 
         return pedidoRepository.findById(id).map(pedido -> {
             precondicion.accept(pedido);
@@ -334,7 +351,16 @@ public class PedidoService {
                 pedido.setClienteNombre(request.getClienteNombre());
             }
             if (request.getDireccionEntrega() != null) {
+                boolean cambioDireccion = !Objects.equals(pedido.getDireccionEntrega(), request.getDireccionEntrega());
                 pedido.setDireccionEntrega(request.getDireccionEntrega());
+                if (cambioDireccion && request.getLatitudEntrega() == null) {
+                    pedido.setLatitudEntrega(null);
+                    pedido.setLongitudEntrega(null);
+                }
+            }
+            if (request.getLatitudEntrega() != null) {
+                pedido.setLatitudEntrega(request.getLatitudEntrega());
+                pedido.setLongitudEntrega(request.getLongitudEntrega());
             }
             if (request.getDescripcion() != null) {
                 pedido.setDescripcion(request.getDescripcion());
