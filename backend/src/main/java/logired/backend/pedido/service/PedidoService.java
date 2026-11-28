@@ -102,6 +102,15 @@ public class PedidoService {
             throw new IllegalArgumentException("La solicitud del pedido es obligatoria.");
         }
         validarCoordenadasEntrega(request.getLatitudEntrega(), request.getLongitudEntrega());
+        Double latitud = request.getLatitudEntrega();
+        Double longitud = request.getLongitudEntrega();
+        if (latitud == null && longitud == null && request.getDireccionEntrega() != null) {
+            double[] coords = resolverCoordenadasPredefinidas(request.getDireccionEntrega());
+            if (coords != null) {
+                latitud = coords[0];
+                longitud = coords[1];
+            }
+        }
 
         Deposito depositoSolicitado = obtenerDepositoSolicitado(request.getDepositoId());
         if (request.getItems() == null || request.getItems().isEmpty()) {
@@ -112,8 +121,8 @@ public class PedidoService {
         Pedido pedido = new Pedido(); // nace en CREADO por el patrón State
         pedido.setClienteNombre(request.getClienteNombre());
         pedido.setDireccionEntrega(request.getDireccionEntrega());
-        pedido.setLatitudEntrega(request.getLatitudEntrega());
-        pedido.setLongitudEntrega(request.getLongitudEntrega());
+        pedido.setLatitudEntrega(latitud);
+        pedido.setLongitudEntrega(longitud);
         pedido.setDeposito(reservas.get(0).deposito());
         pedido.setDescripcion(valorTexto(request.getDescripcion(),
                 "Pedido de " + valorTexto(request.getClienteNombre(), "Cliente")
@@ -289,6 +298,25 @@ public class PedidoService {
         }
     }
 
+    public static double[] resolverCoordenadasPredefinidas(String direccion) {
+        if (direccion == null || direccion.isBlank()) {
+            return null;
+        }
+        String d = direccion.toLowerCase();
+        if (d.contains("lacroze") || d.contains("3496")) return new double[]{-34.5818, -58.4513};
+        if (d.contains("elcano") || d.contains("3240")) return new double[]{-34.5779, -58.4589};
+        if (d.contains("florida") || d.contains("570")) return new double[]{-34.6025, -58.3755};
+        if (d.contains("corrientes 992") || (d.contains("corrientes") && d.contains("992"))) return new double[]{-34.6037, -58.3816};
+        if (d.contains("corrientes 1650") || (d.contains("corrientes") && d.contains("1650"))) return new double[]{-34.6047, -58.3915};
+        if (d.contains("cordoba") || d.contains("córdoba") || d.contains("1765")) return new double[]{-34.5982, -58.3937};
+        if (d.contains("santa fe 2468") || (d.contains("santa fe") && (d.contains("recoleta") || d.contains("2468")))) return new double[]{-34.5947, -58.4018};
+        if (d.contains("santa fe 4280") || (d.contains("santa fe") && (d.contains("palermo") || d.contains("4280")))) return new double[]{-34.5802, -58.4215};
+        if (d.contains("moreau de justo") || d.contains("1190") || d.contains("puerto madero")) return new double[]{-34.6133, -58.3656};
+        if (d.contains("cabildo") || d.contains("2254")) return new double[]{-34.5617, -58.4564};
+        if (d.contains("iriarte") || d.contains("3500") || d.contains("barracas")) return new double[]{-34.6462, -58.3858};
+        return null;
+    }
+
     private Optional<ItemInventario> resolverItemInventarioPorSku(String sku, String depositoNombre) {
         return inventarioRepository.findBySkuAndDeposito(sku, depositoNombre)
             .or(() -> inventarioRepository.findAll().stream()
@@ -354,8 +382,14 @@ public class PedidoService {
                 boolean cambioDireccion = !Objects.equals(pedido.getDireccionEntrega(), request.getDireccionEntrega());
                 pedido.setDireccionEntrega(request.getDireccionEntrega());
                 if (cambioDireccion && request.getLatitudEntrega() == null) {
-                    pedido.setLatitudEntrega(null);
-                    pedido.setLongitudEntrega(null);
+                    double[] coords = resolverCoordenadasPredefinidas(request.getDireccionEntrega());
+                    if (coords != null) {
+                        pedido.setLatitudEntrega(coords[0]);
+                        pedido.setLongitudEntrega(coords[1]);
+                    } else {
+                        pedido.setLatitudEntrega(null);
+                        pedido.setLongitudEntrega(null);
+                    }
                 }
             }
             if (request.getLatitudEntrega() != null) {

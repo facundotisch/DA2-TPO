@@ -268,4 +268,34 @@ class PedidoServiceTests {
         assertEquals(2, stockBarracas.getStockBloqueado());
         assertEquals(1, stockMunro.getStockBloqueado());
     }
+
+    @Test
+    void crearConDireccionPredefinidaAutoresuelveCoordenadas() {
+        Vendedor vendedor = new Vendedor("Tienda", "ventas@tienda.demo", "Catálogo");
+        Producto producto = new Producto("IND-001", "Zapatillas", "Running", "Indumentaria",
+                new BigDecimal("100.00"), vendedor);
+        ReflectionTestUtils.setField(producto, "id", 1L);
+        Deposito barracas = new Deposito("Barracas", "Av. Iriarte 3500", -34.6462, -58.3858);
+        ItemInventario stock = new ItemInventario("IND-001", "Zapatillas", "Barracas", 5, 0);
+
+        ItemPedidoRequest linea = new ItemPedidoRequest();
+        linea.setProductoId(1L);
+        linea.setCantidad(1);
+
+        PedidoCreacionRequest request = new PedidoCreacionRequest();
+        request.setClienteNombre("Lola Diaz");
+        request.setDireccionEntrega("Av. Federico Lacroze 3496 Colegiales");
+        request.setItems(List.of(linea));
+
+        when(productoRepository.findAllById(Set.of(1L))).thenReturn(List.of(producto));
+        when(inventarioRepository.findAllForUpdateBySku("IND-001")).thenReturn(List.of(stock));
+        when(depositoRepository.findByNombre("Barracas")).thenReturn(Optional.of(barracas));
+        when(inventarioRepository.findBySkuAndDeposito("IND-001", "Barracas")).thenReturn(Optional.of(stock));
+        when(pedidoRepository.save(any(Pedido.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Pedido creado = pedidoService.crearDesdeCatalogo(request);
+
+        assertEquals(-34.5818, creado.getLatitudEntrega());
+        assertEquals(-58.4513, creado.getLongitudEntrega());
+    }
 }
